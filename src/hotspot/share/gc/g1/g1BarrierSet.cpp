@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, 2019, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -36,7 +36,7 @@
 #include "oops/compressedOops.inline.hpp"
 #include "oops/oop.inline.hpp"
 #include "runtime/interfaceSupport.inline.hpp"
-#include "runtime/mutexLocker.hpp"
+#include "runtime/orderAccess.hpp"
 #include "runtime/thread.inline.hpp"
 #include "utilities/macros.hpp"
 #ifdef COMPILER1
@@ -57,8 +57,9 @@ G1BarrierSet::G1BarrierSet(G1CardTable* card_table) :
                       BarrierSet::FakeRtti(BarrierSet::G1BarrierSet)),
   _satb_mark_queue_buffer_allocator("SATB Buffer Allocator", G1SATBBufferSize),
   _dirty_card_queue_buffer_allocator("DC Buffer Allocator", G1UpdateBufferSize),
-  _satb_mark_queue_set(),
-  _dirty_card_queue_set()
+  _satb_mark_queue_set(&_satb_mark_queue_buffer_allocator),
+  _dirty_card_queue_set(&_dirty_card_queue_buffer_allocator),
+  _shared_dirty_card_queue(&_dirty_card_queue_set)
 {}
 
 void G1BarrierSet::enqueue(oop pre_val) {
@@ -91,7 +92,7 @@ void G1BarrierSet::write_ref_array_pre(narrowOop* dst, size_t count, bool dest_u
   }
 }
 
-void G1BarrierSet::write_ref_field_post_slow(volatile jbyte* byte) {
+void G1BarrierSet::write_ref_field_post_slow(volatile CardValue* byte) {
   // In the slow path, we know a card is not young
   assert(*byte != G1CardTable::g1_young_card_val(), "slow path invoked without filtering");
   OrderAccess::storeload();
@@ -106,8 +107,8 @@ void G1BarrierSet::invalidate(MemRegion mr) {
   if (mr.is_empty()) {
     return;
   }
-  volatile jbyte* byte = _card_table->byte_for(mr.start());
-  jbyte* last_byte = _card_table->byte_for(mr.last());
+  volatile CardValue* byte = _card_table->byte_for(mr.start());
+  CardValue* last_byte = _card_table->byte_for(mr.last());
   // skip initial young cards
   for (; byte <= last_byte && *byte == G1CardTable::g1_young_card_val(); byte++);
 
@@ -117,7 +118,7 @@ void G1BarrierSet::invalidate(MemRegion mr) {
     Thread* thr = Thread::current();
     G1DirtyCardQueue& queue = G1ThreadLocalData::dirty_card_queue(thr);
     for (; byte <= last_byte; byte++) {
-      jbyte bv = *byte;
+      CardValue bv = *byte;
       if ((bv != G1CardTable::g1_young_card_val()) &&
           (bv != G1CardTable::dirty_card_val())) {
         *byte = G1CardTable::dirty_card_val();
@@ -147,24 +148,7 @@ void G1BarrierSet::on_thread_attach(Thread* thread) {
 
   // If we are creating the thread during a marking cycle, we should
   // set the active field of the SATB queue to true.  That involves
-  // copying the global is_active value to this thread's queue, which
-  // is done without any direct synchronization here.
-  //
-  // The activation and deactivation of the SATB queues occurs at the
-  // beginning / end of a marking cycle, and is done during
-  // safepoints.  This function is called just before a thread is
-  // added to its corresponding threads list (for Java or non-Java
-  // threads, respectively).
-  //
-  // For Java threads, that's done while holding the Threads_lock,
-  // which ensures we're not at a safepoint, so reading the global
-  // is_active state is synchronized against update.
-  assert(!thread->is_Java_thread() || !SafepointSynchronize::is_at_safepoint(),
-         "Should not be at a safepoint");
-  // For non-Java threads, thread creation (and list addition) may,
-  // and indeed usually does, occur during a safepoint.  But such
-  // creation isn't concurrent with updating the global SATB active
-  // state.
+  // copying the global is_active value to this thread's queue.
   bool is_satb_active = _satb_mark_queue_set.is_active();
   G1ThreadLocalData::satb_mark_queue(thread).set_active(is_satb_active);
 }
@@ -174,12 +158,4 @@ void G1BarrierSet::on_thread_detach(Thread* thread) {
   CardTableBarrierSet::on_thread_detach(thread);
   G1ThreadLocalData::satb_mark_queue(thread).flush();
   G1ThreadLocalData::dirty_card_queue(thread).flush();
-}
-
-BufferNode::Allocator& G1BarrierSet::satb_mark_queue_buffer_allocator() {
-  return _satb_mark_queue_buffer_allocator;
-}
-
-BufferNode::Allocator& G1BarrierSet::dirty_card_queue_buffer_allocator() {
-  return _dirty_card_queue_buffer_allocator;
 }

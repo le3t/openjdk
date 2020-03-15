@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017, 2019, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2017, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -72,7 +72,7 @@ public class TestOverrideMethods  extends JavadocTester {
                 "-javafx",
                 "--disable-javafx-strict-checks",
                 "--override-methods=summary",
-                "pkg5");
+                "pkg5", "pkg6");
 
         checkExit(Exit.OK);
 
@@ -114,8 +114,8 @@ public class TestOverrideMethods  extends JavadocTester {
                 "Classes.GP.html#m0()\">m0",
 
                 // Check method details for override
-                "overrideSpecifyLabel",
-                "Overrides:",
+                "<dl class=\"notes\">\n"
+                + "<dt>Overrides:",
                 "Classes.GP.html#m7()\">m7",
                 "in class",
                 "Classes.GP.html",
@@ -173,7 +173,7 @@ public class TestOverrideMethods  extends JavadocTester {
         // Make sure the static methods in the super interface
         // do not make it to this interface
         checkOutput("pkg5/Interfaces.D.html", false,
-            "msd", "msn");
+                "msd", "msn");
 
         checkOrder("pkg5/Interfaces.D.html",
                 "Start of links <p>",
@@ -231,7 +231,7 @@ public class TestOverrideMethods  extends JavadocTester {
 
         // Test synthetic values and valuesof of an enum.
         checkOrder("index-all.html",
-                "<h2 class=\"title\">M</h2>",
+                "<h2 class=\"title\" id=\"I:M\">M</h2>",
                 "<a href=\"pkg5/Interfaces.C.html#m()\">m()",
                 "<a href=\"pkg5/Interfaces.D.html#m()\">m()</a>",
                 "<a href=\"pkg5/Classes.GP.html#m0()\">m0()",
@@ -256,5 +256,31 @@ public class TestOverrideMethods  extends JavadocTester {
                 "Returns an array containing the constants of this enum type, in\n" +
                         "the order they are declared."
         );
+
+        // Check methods with covariant return types
+        // Only m2 should be shown in summary; m1 and m3 should listed as declared in Base
+        checkOutput("pkg6/Sub.html", true,
+                "<table aria-labelledby=\"t0\">\n"
+                + "<thead>\n"
+                + "<tr>\n"
+                + "<th class=\"col-first\" scope=\"col\">Modifier and Type</th>\n"
+                + "<th class=\"col-second\" scope=\"col\">Method</th>\n"
+                + "<th class=\"col-last\" scope=\"col\">Description</th>\n"
+                + "</tr>\n"
+                + "</thead>\n"
+                + "<tbody>\n"
+                + "<tr class=\"alt-color\" id=\"i0\">\n"
+                + "<td class=\"col-first\"><code>java.lang.String</code></td>\n"
+                + "<th class=\"col-second\" scope=\"row\"><code><span class=\"member-name-link\"><a href=\"#m2()\">m2</a></span>()</code></th>\n"
+                + "<td class=\"col-last\">\n"
+                + "<div class=\"block\">This is Base::m2.</div>\n"
+                + "</td>\n"
+                + "</tr>\n"
+                + "</tbody>\n"
+                + "</table>\n",
+                "<div class=\"inherited-list\">\n"
+                + "<h3 id=\"methods.inherited.from.class.pkg6.Base\">Methods declared in class&nbsp;pkg6."
+                + "<a href=\"Base.html\" title=\"class in pkg6\">Base</a></h3>\n"
+                + "<code><a href=\"Base.html#m1()\">m1</a>, <a href=\"Base.html#m3()\">m3</a></code></div>\n");
     }
 }

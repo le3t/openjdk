@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2019, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -32,16 +32,18 @@ import javax.lang.model.element.PackageElement;
 import javax.lang.model.element.TypeElement;
 
 import com.sun.source.doctree.DocTree;
+import jdk.javadoc.internal.doclets.formats.html.markup.ContentBuilder;
+import jdk.javadoc.internal.doclets.formats.html.markup.Entity;
 import jdk.javadoc.internal.doclets.formats.html.markup.HtmlStyle;
 import jdk.javadoc.internal.doclets.formats.html.markup.HtmlTag;
 import jdk.javadoc.internal.doclets.formats.html.markup.HtmlTree;
-import jdk.javadoc.internal.doclets.formats.html.markup.Navigation;
-import jdk.javadoc.internal.doclets.formats.html.markup.Navigation.PageMode;
+import jdk.javadoc.internal.doclets.formats.html.Navigation.PageMode;
 import jdk.javadoc.internal.doclets.formats.html.markup.StringContent;
 import jdk.javadoc.internal.doclets.toolkit.AnnotationTypeWriter;
 import jdk.javadoc.internal.doclets.toolkit.Content;
 import jdk.javadoc.internal.doclets.toolkit.util.CommentHelper;
 import jdk.javadoc.internal.doclets.toolkit.util.DocFileIOException;
+import jdk.javadoc.internal.doclets.toolkit.util.DocPath;
 
 /**
  * Generate the Class Information Page.
@@ -55,10 +57,6 @@ import jdk.javadoc.internal.doclets.toolkit.util.DocFileIOException;
  * @see java.util.List
  * @see java.util.ArrayList
  * @see java.util.HashMap
- *
- * @author Atul M Dambalkar
- * @author Robert Field
- * @author Bhavesh Patel (Modified)
  */
 public class AnnotationTypeWriterImpl extends SubWriterHolderWriter
         implements AnnotationTypeWriter {
@@ -76,154 +74,124 @@ public class AnnotationTypeWriterImpl extends SubWriterHolderWriter
         super(configuration, configuration.docPaths.forClass(annotationType));
         this.annotationType = annotationType;
         configuration.currentTypeElement = annotationType;
-        this.navBar = new Navigation(annotationType, configuration, fixedNavDiv, PageMode.CLASS, path);
+        this.navBar = new Navigation(annotationType, configuration, PageMode.CLASS, path);
     }
 
-    /**
-     * {@inheritDoc}
-     */
     @Override
     public Content getHeader(String header) {
-        HtmlTree bodyTree = getBody(true, getWindowTitle(utils.getSimpleName(annotationType)));
-        HtmlTree htmlTree = HtmlTree.HEADER();
-        addTop(htmlTree);
+        Content headerContent = new ContentBuilder();
+        addTop(headerContent);
         Content linkContent = getModuleLink(utils.elementUtils.getModuleOf(annotationType),
                 contents.moduleLabel);
         navBar.setNavLinkModule(linkContent);
         navBar.setMemberSummaryBuilder(configuration.getBuilderFactory().getMemberSummaryBuilder(this));
         navBar.setUserHeader(getUserHeaderFooter(true));
-        htmlTree.addContent(navBar.getContent(true));
-        bodyTree.addContent(htmlTree);
-        bodyTree.addContent(MarkerComments.START_OF_CLASS_DATA);
+        headerContent.add(navBar.getContent(Navigation.Position.TOP));
+
         HtmlTree div = new HtmlTree(HtmlTag.DIV);
         div.setStyle(HtmlStyle.header);
         if (configuration.showModules) {
             ModuleElement mdle = configuration.docEnv.getElementUtils().getModuleOf(annotationType);
             Content typeModuleLabel = HtmlTree.SPAN(HtmlStyle.moduleLabelInType, contents.moduleLabel);
             Content moduleNameDiv = HtmlTree.DIV(HtmlStyle.subTitle, typeModuleLabel);
-            moduleNameDiv.addContent(Contents.SPACE);
-            moduleNameDiv.addContent(getModuleLink(mdle, new StringContent(mdle.getQualifiedName())));
-            div.addContent(moduleNameDiv);
+            moduleNameDiv.add(Entity.NO_BREAK_SPACE);
+            moduleNameDiv.add(getModuleLink(mdle, new StringContent(mdle.getQualifiedName())));
+            div.add(moduleNameDiv);
         }
         PackageElement pkg = utils.containingPackage(annotationType);
         if (!pkg.isUnnamed()) {
             Content typePackageLabel = HtmlTree.SPAN(HtmlStyle.packageLabelInType, contents.packageLabel);
             Content pkgNameDiv = HtmlTree.DIV(HtmlStyle.subTitle, typePackageLabel);
-            pkgNameDiv.addContent(Contents.SPACE);
+            pkgNameDiv.add(Entity.NO_BREAK_SPACE);
             Content pkgNameContent = getPackageLink(pkg, new StringContent(utils.getPackageName(pkg)));
-            pkgNameDiv.addContent(pkgNameContent);
-            div.addContent(pkgNameDiv);
+            pkgNameDiv.add(pkgNameContent);
+            div.add(pkgNameDiv);
         }
         LinkInfoImpl linkInfo = new LinkInfoImpl(configuration,
                 LinkInfoImpl.Kind.CLASS_HEADER, annotationType);
-        Content headerContent = new StringContent(header);
-        Content heading = HtmlTree.HEADING(Headings.PAGE_TITLE_HEADING, true,
-                HtmlStyle.title, headerContent);
-        heading.addContent(getTypeParameterLinks(linkInfo));
-        div.addContent(heading);
-        mainTree.addContent(div);
-        return bodyTree;
+        Content heading = HtmlTree.HEADING_TITLE(Headings.PAGE_TITLE_HEADING,
+                HtmlStyle.title, new StringContent(header));
+        heading.add(getTypeParameterLinks(linkInfo));
+        div.add(heading);
+        bodyContents.setHeader(headerContent)
+                .addMainContent(MarkerComments.START_OF_CLASS_DATA)
+                .addMainContent(div);
+        return getBody(getWindowTitle(utils.getSimpleName(annotationType)));
     }
 
-    /**
-     * {@inheritDoc}
-     */
     @Override
     public Content getAnnotationContentHeader() {
         return getContentHeader();
     }
 
-    /**
-     * {@inheritDoc}
-     */
     @Override
-    public void addFooter(Content contentTree) {
-        contentTree.addContent(MarkerComments.END_OF_CLASS_DATA);
+    public void addFooter() {
         Content htmlTree = HtmlTree.FOOTER();
         navBar.setUserFooter(getUserHeaderFooter(false));
-        htmlTree.addContent(navBar.getContent(false));
+        htmlTree.add(navBar.getContent(Navigation.Position.BOTTOM));
         addBottom(htmlTree);
-        contentTree.addContent(htmlTree);
+        bodyContents.addMainContent(MarkerComments.END_OF_CLASS_DATA)
+                    .setFooter(htmlTree);
     }
 
-    /**
-     * {@inheritDoc}
-     */
     @Override
     public void printDocument(Content contentTree) throws DocFileIOException {
         String description = getDescription("declaration", annotationType);
         PackageElement pkg = utils.containingPackage(this.annotationType);
-        Content stylesheetContent = getLocalStylesheetContent(pkg);
+        List<DocPath> localStylesheets = getLocalStylesheets(pkg);
+        contentTree.add(bodyContents);
         printHtmlDocument(configuration.metakeywords.getMetaKeywords(annotationType),
-                description, stylesheetContent, contentTree);
+                description, localStylesheets, contentTree);
     }
 
-    /**
-     * {@inheritDoc}
-     */
     @Override
     public Content getAnnotationInfoTreeHeader() {
         return getMemberTreeHeader();
     }
 
-    /**
-     * {@inheritDoc}
-     */
     @Override
     public Content getAnnotationInfo(Content annotationInfoTree) {
-        return getMemberTree(HtmlStyle.description, annotationInfoTree);
+        return HtmlTree.SECTION(HtmlStyle.description, annotationInfoTree);
     }
 
-    /**
-     * {@inheritDoc}
-     */
     @Override
     public void addAnnotationTypeSignature(String modifiers, Content annotationInfoTree) {
         Content hr = new HtmlTree(HtmlTag.HR);
-        annotationInfoTree.addContent(hr);
+        annotationInfoTree.add(hr);
         Content pre = new HtmlTree(HtmlTag.PRE);
         addAnnotationInfo(annotationType, pre);
-        pre.addContent(modifiers);
+        pre.add(modifiers);
         LinkInfoImpl linkInfo = new LinkInfoImpl(configuration,
                 LinkInfoImpl.Kind.CLASS_SIGNATURE, annotationType);
         Content annotationName = new StringContent(utils.getSimpleName(annotationType));
         Content parameterLinks = getTypeParameterLinks(linkInfo);
-        if (configuration.linksource) {
+        if (options.linkSource()) {
             addSrcLink(annotationType, annotationName, pre);
-            pre.addContent(parameterLinks);
+            pre.add(parameterLinks);
         } else {
             Content span = HtmlTree.SPAN(HtmlStyle.memberNameLabel, annotationName);
-            span.addContent(parameterLinks);
-            pre.addContent(span);
+            span.add(parameterLinks);
+            pre.add(span);
         }
-        annotationInfoTree.addContent(pre);
+        annotationInfoTree.add(pre);
     }
 
-    /**
-     * {@inheritDoc}
-     */
     @Override
     public void addAnnotationTypeDescription(Content annotationInfoTree) {
-        if (!configuration.nocomment) {
+        if (!options.noComment()) {
             if (!utils.getFullBody(annotationType).isEmpty()) {
                 addInlineComment(annotationType, annotationInfoTree);
             }
         }
     }
 
-    /**
-     * {@inheritDoc}
-     */
     @Override
     public void addAnnotationTypeTagInfo(Content annotationInfoTree) {
-        if (!configuration.nocomment) {
+        if (!options.noComment()) {
             addTagsInfo(annotationType, annotationInfoTree);
         }
     }
 
-    /**
-     * {@inheritDoc}
-     */
     @Override
     public void addAnnotationTypeDeprecationInfo(Content annotationInfoTree) {
         List<? extends DocTree> deprs = utils.getBlockTags(annotationType, DocTree.Kind.DEPRECATED);
@@ -233,20 +201,23 @@ public class AnnotationTypeWriterImpl extends SubWriterHolderWriter
             Content div = HtmlTree.DIV(HtmlStyle.deprecationBlock, deprLabel);
             if (!deprs.isEmpty()) {
 
-                List<? extends DocTree> commentTags = ch.getDescription(configuration, deprs.get(0));
+                List<? extends DocTree> commentTags = ch.getDescription(deprs.get(0));
                 if (!commentTags.isEmpty()) {
                     addInlineDeprecatedComment(annotationType, deprs.get(0), div);
                 }
             }
-            annotationInfoTree.addContent(div);
+            annotationInfoTree.add(div);
         }
     }
 
-    /**
-     * {@inheritDoc}
-     */
     @Override
     public TypeElement getAnnotationTypeElement() {
         return annotationType;
+    }
+
+    @Override
+    public Content getMemberDetailsTree(Content contentTree) {
+        return HtmlTree.SECTION(HtmlStyle.details, contentTree)
+                .setId(SectionName.ANNOTATION_TYPE_ELEMENT_DETAIL.getName());
     }
 }

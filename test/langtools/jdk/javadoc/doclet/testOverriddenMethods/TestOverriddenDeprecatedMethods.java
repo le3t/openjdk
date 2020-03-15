@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2018, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -57,10 +57,12 @@ public class TestOverriddenDeprecatedMethods extends JavadocTester {
 
         checkOrder("pkg1/SubClass.html",
                 "Method Detail",
-                "@Deprecated\npublic&nbsp;void&nbsp;func1()",
-                "<div class=\"deprecationBlock\"><span class=\"deprecatedLabel\">Deprecated.</span></div>",
-                "@Deprecated\npublic&nbsp;void&nbsp;func2()",
-                "<div class=\"deprecationBlock\"><span class=\"deprecatedLabel\">Deprecated.</span></div>",
+                "<span class=\"annotations\">@Deprecated\n</span><span class=\"modifiers\">public</span>&nbsp;"
+                + "<span class=\"return-type\">void</span>&nbsp;<span class=\"member-name\">func1</span>()",
+                "<div class=\"deprecation-block\"><span class=\"deprecated-label\">Deprecated.</span></div>",
+                "<span class=\"annotations\">@Deprecated\n</span><span class=\"modifiers\">public</span>&nbsp;"
+                + "<span class=\"return-type\">void</span>&nbsp;<span class=\"member-name\">func2</span>()",
+                "<div class=\"deprecation-block\"><span class=\"deprecated-label\">Deprecated.</span></div>",
                 "<div class=\"block\">deprecated with comments</div>");
     }
 }

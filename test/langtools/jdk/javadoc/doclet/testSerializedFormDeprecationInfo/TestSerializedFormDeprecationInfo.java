@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2009, 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2009, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,7 +25,6 @@
  * @test
  * @bug 6802694 8025633 8026567 8183511 8074407 8182765
  * @summary This test verifies deprecation info in serialized-form.html.
- * @author Bhavesh Patel
  * @library ../../lib
  * @modules jdk.javadoc/jdk.javadoc.internal.tool
  * @build javadoc.tester.*
@@ -92,42 +91,42 @@ public class TestSerializedFormDeprecationInfo extends JavadocTester {
     // display the inline comments, tags and deprecation information if any.
     void checkCommentDeprecated(boolean expectFound) {
         checkOutput("serialized-form.html", expectFound,
-                "<dl>\n"
-                + "<dt><span class=\"throwsLabel\">Throws:</span></dt>\n"
+                "<dl class=\"notes\">\n"
+                + "<dt>Throws:</dt>\n"
                 + "<dd><code>"
                 + "java.io.IOException</code> - on error</dd>\n"
-                + "<dt><span class=\"seeLabel\">See Also:</span>"
+                + "<dt>See Also:"
                 + "</dt>\n"
                 + "<dd><a href=\"pkg1/C1.html#setUndecorated(boolean)\">"
                 + "<code>C1.setUndecorated(boolean)</code></a></dd>\n"
                 + "</dl>",
-                "<span class=\"deprecatedLabel\">Deprecated.</span>\n"
-                + "<div class=\"deprecationComment\">As of JDK version 1.5, replaced by\n"
+                "<span class=\"deprecated-label\">Deprecated.</span>\n"
+                + "<div class=\"deprecation-comment\">As of JDK version 1.5, replaced by\n"
                 + " <a href=\"pkg1/C1.html#setUndecorated(boolean)\">"
                 + "<code>setUndecorated(boolean)</code></a>.</div>\n"
                 + "</div>\n"
                 + "<div class=\"block\">This field indicates whether the C1 "
                 + "is undecorated.</div>\n"
                 + "&nbsp;\n"
-                + "<dl>\n"
-                + "<dt><span class=\"simpleTagLabel\">Since:</span></dt>\n"
+                + "<dl class=\"notes\">\n"
+                + "<dt>Since:</dt>\n"
                 + "<dd>1.4</dd>\n"
-                + "<dt><span class=\"seeLabel\">See Also:</span>"
+                + "<dt>See Also:"
                 + "</dt>\n"
                 + "<dd><a href=\"pkg1/C1.html#setUndecorated(boolean)\">"
                 + "<code>C1.setUndecorated(boolean)</code></a></dd>\n"
                 + "</dl>",
-                "<span class=\"deprecatedLabel\">Deprecated.</span>\n"
-                + "<div class=\"deprecationComment\">As of JDK version 1.5, replaced by\n"
+                "<span class=\"deprecated-label\">Deprecated.</span>\n"
+                + "<div class=\"deprecation-comment\">As of JDK version 1.5, replaced by\n"
                 + " <a href=\"pkg1/C1.html#setUndecorated(boolean)\">"
                 + "<code>setUndecorated(boolean)</code></a>.</div>\n"
                 + "</div>\n"
                 + "<div class=\"block\">Reads the object stream.</div>\n"
-                + "<dl>\n"
-                + "<dt><span class=\"throwsLabel\">Throws:</span></dt>\n"
+                + "<dl class=\"notes\">\n"
+                + "<dt>Throws:</dt>\n"
                 + "<dd><code>java.io.IOException</code> - on error</dd>\n"
                 + "</dl>",
-                "<span class=\"deprecatedLabel\">Deprecated.</span>"
+                "<span class=\"deprecated-label\">Deprecated.</span>"
                 + "</div>\n"
                 + "<div class=\"block\">"
                 + "The name for this class.</div>");
@@ -139,16 +138,16 @@ public class TestSerializedFormDeprecationInfo extends JavadocTester {
     void checkNoComment(boolean expectFound) {
         checkOutput("serialized-form.html", expectFound,
                 "<pre>boolean undecorated</pre>\n"
-                + "<div class=\"deprecationBlock\"><span class=\"deprecatedLabel\">Deprecated.</span>\n"
-                + "<div class=\"deprecationComment\">"
+                + "<div class=\"deprecation-block\"><span class=\"deprecated-label\">Deprecated.</span>\n"
+                + "<div class=\"deprecation-comment\">"
                 + "As of JDK version 1.5, replaced by\n"
                 + " <a href=\"pkg1/C1.html#setUndecorated(boolean)\"><code>"
                 + "setUndecorated(boolean)</code></a>.</div>\n"
                 + "</div>\n"
                 + "</li>",
-                "<span class=\"deprecatedLabel\">"
+                "<span class=\"deprecated-label\">"
                 + "Deprecated.</span>\n"
-                + "<div class=\"deprecationComment\">As of JDK version"
+                + "<div class=\"deprecation-comment\">As of JDK version"
                 + " 1.5, replaced by\n"
                 + " <a href=\"pkg1/C1.html#setUndecorated(boolean)\">"
                 + "<code>setUndecorated(boolean)</code></a>.</div>\n"

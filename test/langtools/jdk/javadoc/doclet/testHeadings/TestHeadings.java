@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2019, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,7 +25,6 @@
  * @test
  * @bug      4905786 6259611 8162363 8196202
  * @summary  Make sure that headings use the TH tag instead of the TD tag.
- * @author   jamieh
  * @library ../../lib
  * @modules jdk.javadoc/jdk.javadoc.internal.tool
  * @build    javadoc.tester.*
@@ -47,44 +46,44 @@ public class TestHeadings extends JavadocTester {
         javadoc("-d", "out",
                 "-sourcepath", testSrc,
                 "-use",
-                "--frames",
                 "-header", "Test Files",
                 "pkg1", "pkg2");
         checkExit(Exit.OK);
 
         //Package summary
         checkOutput("pkg1/package-summary.html", true,
-                "<th class=\"colFirst\" scope=\"col\">"
+                "<th class=\"col-first\" scope=\"col\">"
                 + "Class</th>\n"
-                + "<th class=\"colLast\" scope=\"col\""
+                + "<th class=\"col-last\" scope=\"col\""
                 + ">Description</th>");
 
         // Class documentation
         checkOutput("pkg1/C1.html", true,
-                "<th class=\"colFirst\" scope=\"col\">Modifier and Type</th>\n"
-                + "<th class=\"colSecond\" scope=\"col\">Field</th>\n"
-                + "<th class=\"colLast\" scope=\"col\">Description</th>",
-                "<h3>Methods inherited from class&nbsp;java.lang.Object</h3>");
+                "<th class=\"col-first\" scope=\"col\">Modifier and Type</th>\n"
+                + "<th class=\"col-second\" scope=\"col\">Field</th>\n"
+                + "<th class=\"col-last\" scope=\"col\">Description</th>",
+                "<h3 id=\"methods.inherited.from.class.java.lang.Object\">"
+                + "Methods inherited from class&nbsp;java.lang.Object</h3>");
 
         // Class use documentation
         checkOutput("pkg1/class-use/C1.html", true,
-                "<th class=\"colFirst\" scope=\"col\">Package</th>\n"
-                + "<th class=\"colLast\" scope=\"col\">Description</th>",
-                "<th class=\"colFirst\" scope=\"col\">Modifier and Type</th>\n"
-                + "<th class=\"colSecond\" scope=\"col\">Field</th>\n"
-                + "<th class=\"colLast\" scope=\"col\">Description</th>");
+                "<th class=\"col-first\" scope=\"col\">Package</th>\n"
+                + "<th class=\"col-last\" scope=\"col\">Description</th>",
+                "<th class=\"col-first\" scope=\"col\">Modifier and Type</th>\n"
+                + "<th class=\"col-second\" scope=\"col\">Field</th>\n"
+                + "<th class=\"col-last\" scope=\"col\">Description</th>");
 
         // Deprecated
         checkOutput("deprecated-list.html", true,
-                "<th class=\"colFirst\" scope=\"col\">Method</th>\n"
-                + "<th class=\"colLast\" scope=\"col\">Description</th>");
+                "<th class=\"col-first\" scope=\"col\">Method</th>\n"
+                + "<th class=\"col-last\" scope=\"col\">Description</th>");
 
         // Constant values
         checkOutput("constant-values.html", true,
-                "<th class=\"colFirst\" scope=\"col\">"
+                "<th class=\"col-first\" scope=\"col\">"
                 + "Modifier and Type</th>\n"
-                + "<th class=\"colSecond\" scope=\"col\">Constant Field</th>\n"
-                + "<th class=\"colLast\" scope=\"col\">Value</th>");
+                + "<th class=\"col-second\" scope=\"col\">Constant Field</th>\n"
+                + "<th class=\"col-last\" scope=\"col\">Value</th>");
 
         // Serialized Form
         checkOutput("serialized-form.html", true,
@@ -93,13 +92,8 @@ public class TestHeadings extends JavadocTester {
                 + "pkg1.C1</a> extends java.lang.Object implements Serializable</h3>",
                 "<h4>Serialized Fields</h4>");
 
-        // Overview Frame
-        checkOutput("overview-frame.html", true,
-                "<h1 title=\"Test Files\" class=\"bar\">Test Files</h1>",
-                "<title>Overview List</title>");
-
         // Overview Summary
-        checkOutput("overview-summary.html", true,
+        checkOutput("index.html", true,
                 "<title>Overview</title>");
     }
 }

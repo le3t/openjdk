@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 2018, Red Hat, Inc. All rights reserved.
+ * Copyright (c) 2018, 2020, Red Hat, Inc. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 only, as
@@ -24,7 +25,6 @@
 #include "precompiled.hpp"
 
 #include "gc/shared/gcCause.hpp"
-#include "gc/shenandoah/shenandoahBrooksPointer.hpp"
 #include "gc/shenandoah/shenandoahCollectionSet.inline.hpp"
 #include "gc/shenandoah/shenandoahCollectorPolicy.hpp"
 #include "gc/shenandoah/shenandoahHeap.inline.hpp"
@@ -63,8 +63,6 @@ int ShenandoahHeuristics::compare_by_alloc_seq_descending(RegionData a, RegionDa
 }
 
 ShenandoahHeuristics::ShenandoahHeuristics() :
-  _update_refs_early(false),
-  _update_refs_adaptive(false),
   _region_data(NULL),
   _region_data_size(0),
   _degenerated_cycles_in_a_row(0),
@@ -77,19 +75,6 @@ ShenandoahHeuristics::ShenandoahHeuristics() :
   _gc_time_history(new TruncatedSeq(5)),
   _metaspace_oom()
 {
-  if (strcmp(ShenandoahUpdateRefsEarly, "on") == 0 ||
-      strcmp(ShenandoahUpdateRefsEarly, "true") == 0 ) {
-    _update_refs_early = true;
-  } else if (strcmp(ShenandoahUpdateRefsEarly, "off") == 0 ||
-             strcmp(ShenandoahUpdateRefsEarly, "false") == 0 ) {
-    _update_refs_early = false;
-  } else if (strcmp(ShenandoahUpdateRefsEarly, "adaptive") == 0) {
-    _update_refs_adaptive = true;
-    _update_refs_early = true;
-  } else {
-    vm_exit_during_initialization("Unknown -XX:ShenandoahUpdateRefsEarly option: %s", ShenandoahUpdateRefsEarly);
-  }
-
   // No unloading during concurrent mark? Communicate that to heuristics
   if (!ClassUnloadingWithConcurrentMark) {
     FLAG_SET_DEFAULT(ShenandoahUnloadClassesFrequency, 0);
@@ -120,6 +105,9 @@ void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collec
   assert(collection_set->count() == 0, "Must be empty");
 
   ShenandoahHeap* heap = ShenandoahHeap::heap();
+
+  // Check all pinned regions have updated status before choosing the collection set.
+  heap->assert_pinned_region_status();
 
   // Step 1. Build up the region candidates we care about, rejecting losers and accepting winners right away.
 
@@ -164,7 +152,7 @@ void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collec
       // Reclaim humongous regions here, and count them as the immediate garbage
 #ifdef ASSERT
       bool reg_live = region->has_live();
-      bool bm_live = ctx->is_marked(oop(region->bottom() + ShenandoahBrooksPointer::word_size()));
+      bool bm_live = ctx->is_marked(oop(region->bottom()));
       assert(reg_live == bm_live,
              "Humongous liveness and marks should agree. Region live: %s; Bitmap live: %s; Region Live Words: " SIZE_FORMAT,
              BOOL_TO_STR(reg_live), BOOL_TO_STR(bm_live), region->get_live_data_words());
@@ -187,8 +175,9 @@ void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collec
   // given the amount of immediately reclaimable garbage. If we do, figure out the collection set.
 
   assert (immediate_garbage <= total_garbage,
-          "Cannot have more immediate garbage than total garbage: " SIZE_FORMAT "M vs " SIZE_FORMAT "M",
-          immediate_garbage / M, total_garbage / M);
+          "Cannot have more immediate garbage than total garbage: " SIZE_FORMAT "%s vs " SIZE_FORMAT "%s",
+          byte_size_in_proper_unit(immediate_garbage), proper_unit_for_byte_size(immediate_garbage),
+          byte_size_in_proper_unit(total_garbage),     proper_unit_for_byte_size(total_garbage));
 
   size_t immediate_percent = total_garbage == 0 ? 0 : (immediate_garbage * 100 / total_garbage);
 
@@ -197,12 +186,16 @@ void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collec
     collection_set->update_region_status();
 
     size_t cset_percent = total_garbage == 0 ? 0 : (collection_set->garbage() * 100 / total_garbage);
-    log_info(gc, ergo)("Collectable Garbage: " SIZE_FORMAT "M (" SIZE_FORMAT "%% of total), " SIZE_FORMAT "M CSet, " SIZE_FORMAT " CSet regions",
-                       collection_set->garbage() / M, cset_percent, collection_set->live_data() / M, collection_set->count());
+    log_info(gc, ergo)("Collectable Garbage: " SIZE_FORMAT "%s (" SIZE_FORMAT "%% of total), " SIZE_FORMAT "%s CSet, " SIZE_FORMAT " CSet regions",
+                       byte_size_in_proper_unit(collection_set->garbage()),   proper_unit_for_byte_size(collection_set->garbage()),
+                       cset_percent,
+                       byte_size_in_proper_unit(collection_set->live_data()), proper_unit_for_byte_size(collection_set->live_data()),
+                       collection_set->count());
   }
 
-  log_info(gc, ergo)("Immediate Garbage: " SIZE_FORMAT "M (" SIZE_FORMAT "%% of total), " SIZE_FORMAT " regions",
-                     immediate_garbage / M, immediate_percent, immediate_regions);
+  log_info(gc, ergo)("Immediate Garbage: " SIZE_FORMAT "%s (" SIZE_FORMAT "%% of total), " SIZE_FORMAT " regions",
+                     byte_size_in_proper_unit(immediate_garbage), proper_unit_for_byte_size(immediate_garbage),
+                     immediate_percent, immediate_regions);
 }
 
 void ShenandoahHeuristics::record_gc_start() {
@@ -221,15 +214,7 @@ void ShenandoahHeuristics::record_cycle_end() {
   _last_cycle_end = os::elapsedTime();
 }
 
-void ShenandoahHeuristics::record_phase_time(ShenandoahPhaseTimings::Phase phase, double secs) {
-  // Do nothing
-}
-
-bool ShenandoahHeuristics::should_start_update_refs() {
-  return _update_refs_early;
-}
-
-bool ShenandoahHeuristics::should_start_normal_gc() const {
+bool ShenandoahHeuristics::should_start_gc() const {
   // Perform GC to cleanup metaspace
   if (has_metaspace_oom()) {
     // Some of vmTestbase/metaspace tests depend on following line to count GC cycles
@@ -237,25 +222,37 @@ bool ShenandoahHeuristics::should_start_normal_gc() const {
     return true;
   }
 
-  double last_time_ms = (os::elapsedTime() - _last_cycle_end) * 1000;
-  bool periodic_gc = (last_time_ms > ShenandoahGuaranteedGCInterval);
-  if (periodic_gc) {
-    log_info(gc)("Trigger: Time since last GC (%.0f ms) is larger than guaranteed interval (" UINTX_FORMAT " ms)",
-                  last_time_ms, ShenandoahGuaranteedGCInterval);
+  if (ShenandoahGuaranteedGCInterval > 0) {
+    double last_time_ms = (os::elapsedTime() - _last_cycle_end) * 1000;
+    if (last_time_ms > ShenandoahGuaranteedGCInterval) {
+      log_info(gc)("Trigger: Time since last GC (%.0f ms) is larger than guaranteed interval (" UINTX_FORMAT " ms)",
+                   last_time_ms, ShenandoahGuaranteedGCInterval);
+      return true;
+    }
   }
-  return periodic_gc;
-}
 
-bool ShenandoahHeuristics::should_start_traversal_gc() {
-  return false;
-}
-
-bool ShenandoahHeuristics::can_do_traversal_gc() {
   return false;
 }
 
 bool ShenandoahHeuristics::should_degenerate_cycle() {
   return _degenerated_cycles_in_a_row <= ShenandoahFullGCThreshold;
+}
+
+void ShenandoahHeuristics::adjust_penalty(intx step) {
+  assert(0 <= _gc_time_penalties && _gc_time_penalties <= 100,
+          "In range before adjustment: " INTX_FORMAT, _gc_time_penalties);
+
+  intx new_val = _gc_time_penalties + step;
+  if (new_val < 0) {
+    new_val = 0;
+  }
+  if (new_val > 100) {
+    new_val = 100;
+  }
+  _gc_time_penalties = new_val;
+
+  assert(0 <= _gc_time_penalties && _gc_time_penalties <= 100,
+          "In range after adjustment: " INTX_FORMAT, _gc_time_penalties);
 }
 
 void ShenandoahHeuristics::record_success_concurrent() {
@@ -264,19 +261,22 @@ void ShenandoahHeuristics::record_success_concurrent() {
 
   _gc_time_history->add(time_since_last_gc());
   _gc_times_learned++;
-  _gc_time_penalties -= MIN2<size_t>(_gc_time_penalties, Concurrent_Adjust);
+
+  adjust_penalty(Concurrent_Adjust);
 }
 
 void ShenandoahHeuristics::record_success_degenerated() {
   _degenerated_cycles_in_a_row++;
   _successful_cycles_in_a_row = 0;
-  _gc_time_penalties += Degenerated_Penalty;
+
+  adjust_penalty(Degenerated_Penalty);
 }
 
 void ShenandoahHeuristics::record_success_full() {
   _degenerated_cycles_in_a_row = 0;
   _successful_cycles_in_a_row++;
-  _gc_time_penalties += Full_Penalty;
+
+  adjust_penalty(Full_Penalty);
 }
 
 void ShenandoahHeuristics::record_allocation_failure_gc() {

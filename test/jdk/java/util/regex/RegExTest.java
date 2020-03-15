@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -35,23 +35,44 @@
  * 8027645 8035076 8039124 8035975 8074678 6854417 8143854 8147531 7071819
  * 8151481 4867170 7080302 6728861 6995635 6736245 4916384 6328855 6192895
  * 6345469 6988218 6693451 7006761 8140212 8143282 8158482 8176029 8184706
- * 8194667 8197462 8184692
+ * 8194667 8197462 8184692 8221431 8224789 8228352 8230829 8236034 8235812
+ * 8216332
  *
  * @library /test/lib
+ * @library /lib/testlibrary/java/lang
  * @build jdk.test.lib.RandomFactory
  * @run main RegExTest
  * @key randomness
  */
 
-import java.util.function.Function;
-import java.util.regex.*;
+import java.io.BufferedReader;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.InputStreamReader;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.math.BigInteger;
+import java.nio.CharBuffer;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.Scanner;
-import java.io.*;
-import java.nio.file.*;
-import java.util.*;
-import java.nio.CharBuffer;
+import java.util.function.Function;
 import java.util.function.Predicate;
+import java.util.regex.Matcher;
+import java.util.regex.MatchResult;
+import java.util.regex.Pattern;
+import java.util.regex.PatternSyntaxException;
+import java.util.stream.Stream;
+
 import jdk.test.lib.RandomFactory;
 
 /**
@@ -170,6 +191,9 @@ public class RegExTest {
         grapheme();
         expoBacktracking();
         invalidGroupName();
+        illegalRepetitionRange();
+        surrogatePairWithCanonEq();
+        lineBreakWithQuantifier();
 
         if (failure) {
             throw new
@@ -1054,6 +1078,22 @@ public class RegExTest {
         matcher.useAnchoringBounds(false);
         if (matcher.find())
            failCount++;
+
+        // JDK-8230829
+        pattern = Pattern.compile("\\ud800\\udc61");
+        matcher = pattern.matcher("\ud800\udc61");
+        matcher.region(0, 1);
+        if (matcher.find()) {
+            failCount++;
+            System.out.println("Matched a surrogate pair" +
+                    " that crosses border of region");
+        }
+        if (!matcher.hitEnd()) {
+            failCount++;
+            System.out.println("Expected to hit the end when" +
+                    " matching a surrogate pair crossing region");
+        }
+
         report("Regions");
     }
 
@@ -4755,48 +4795,48 @@ public class RegExTest {
     }
 
     private static void grapheme() throws Exception {
-        Files.lines(Paths.get(System.getProperty("test.src", "."),
-                              "GraphemeBreakTest.txt"))
+        Stream.concat(Files.lines(UCDFiles.GRAPHEME_BREAK_TEST),
+                Files.lines(Paths.get(System.getProperty("test.src", "."), "GraphemeTestCases.txt")))
             .filter( ln -> ln.length() != 0 && !ln.startsWith("#") )
             .forEach( ln -> {
-                    ln = ln.replaceAll("\\s+|\\([a-zA-Z]+\\)|\\[[a-zA-Z]]+\\]|#.*", "");
-                    // System.out.println(str);
-                    String[] strs = ln.split("\u00f7|\u00d7");
-                    StringBuilder src = new StringBuilder();
-                    ArrayList<String> graphemes = new ArrayList<>();
-                    StringBuilder buf = new StringBuilder();
-                    int offBk = 0;
-                    for (String str : strs) {
-                        if (str.length() == 0)  // first empty str
-                            continue;
-                        int cp = Integer.parseInt(str, 16);
-                        src.appendCodePoint(cp);
-                        buf.appendCodePoint(cp);
-                        offBk += (str.length() + 1);
-                        if (ln.charAt(offBk) == '\u00f7') {    // DIV
-                            graphemes.add(buf.toString());
-                            buf = new StringBuilder();
-                        }
+                ln = ln.replaceAll("\\s+|\\([a-zA-Z]+\\)|\\[[a-zA-Z]]+\\]|#.*", "");
+                // System.out.println(str);
+                String[] strs = ln.split("\u00f7|\u00d7");
+                StringBuilder src = new StringBuilder();
+                ArrayList<String> graphemes = new ArrayList<>();
+                StringBuilder buf = new StringBuilder();
+                int offBk = 0;
+                for (String str : strs) {
+                    if (str.length() == 0)  // first empty str
+                        continue;
+                    int cp = Integer.parseInt(str, 16);
+                    src.appendCodePoint(cp);
+                    buf.appendCodePoint(cp);
+                    offBk += (str.length() + 1);
+                    if (ln.charAt(offBk) == '\u00f7') {    // DIV
+                        graphemes.add(buf.toString());
+                        buf = new StringBuilder();
                     }
-                    Pattern p = Pattern.compile("\\X");
-                    Matcher m = p.matcher(src.toString());
-                    Scanner s = new Scanner(src.toString()).useDelimiter("\\b{g}");
-                    for (String g : graphemes) {
-                        // System.out.printf("     grapheme:=[%s]%n", g);
-                        // (1) test \\X directly
-                        if (!m.find() || !m.group().equals(g)) {
-                            System.out.println("Failed \\X [" + ln + "] : " + g);
-                            failCount++;
-                        }
-                        // (2) test \\b{g} + \\X  via Scanner
-                        boolean hasNext = s.hasNext(p);
-                        // if (!s.hasNext() || !s.next().equals(next)) {
-                        if (!s.hasNext(p) || !s.next(p).equals(g)) {
-                            System.out.println("Failed b{g} [" + ln + "] : " + g);
-                            failCount++;
-                        }
+                }
+                Pattern p = Pattern.compile("\\X");
+                Matcher m = p.matcher(src.toString());
+                Scanner s = new Scanner(src.toString()).useDelimiter("\\b{g}");
+                for (String g : graphemes) {
+                    // System.out.printf("     grapheme:=[%s]%n", g);
+                    // (1) test \\X directly
+                    if (!m.find() || !m.group().equals(g)) {
+                        System.out.println("Failed \\X [" + ln + "] : " + g);
+                        failCount++;
                     }
-                });
+                    // (2) test \\b{g} + \\X  via Scanner
+                    boolean hasNext = s.hasNext(p);
+                    // if (!s.hasNext() || !s.next().equals(next)) {
+                    if (!s.hasNext(p) || !s.next(p).equals(g)) {
+                        System.out.println("Failed b{g} [" + ln + "] : " + g);
+                        failCount++;
+                    }
+                }
+            });
         // some sanity checks
         if (!Pattern.compile("\\X{10}").matcher("abcdefghij").matches() ||
             !Pattern.compile("\\b{g}(?:\\X\\b{g}){5}\\b{g}").matcher("abcde").matches() ||
@@ -4931,5 +4971,119 @@ public class RegExTest {
             }
         }
         report("Invalid capturing group names");
+    }
+
+    private static void illegalRepetitionRange() {
+        // huge integers > (2^31 - 1)
+        String n = BigInteger.valueOf(1L << 32)
+            .toString();
+        String m = BigInteger.valueOf(1L << 31)
+            .add(new BigInteger(80, generator))
+            .toString();
+        for (String rep : List.of("", "x", ".", ",", "-1", "2,1",
+                n, n + ",", "0," + n, n + "," + m, m, m + ",", "0," + m)) {
+            String pat = ".{" + rep + "}";
+            try {
+                Pattern.compile(pat);
+                failCount++;
+                System.out.println("Expected to fail. Pattern: " + pat);
+            } catch (PatternSyntaxException e) {
+                if (!e.getMessage().startsWith("Illegal repetition")) {
+                    failCount++;
+                    System.out.println("Unexpected error message: " + e.getMessage());
+                }
+            } catch (Throwable t) {
+                failCount++;
+                System.out.println("Unexpected exception: " + t);
+            }
+        }
+        report("illegalRepetitionRange");
+    }
+
+    private static void surrogatePairWithCanonEq() {
+        try {
+            Pattern.compile("\ud834\udd21", Pattern.CANON_EQ);
+        } catch (Throwable t) {
+            failCount++;
+            System.out.println("Unexpected exception: " + t);
+        }
+        report("surrogatePairWithCanonEq");
+    }
+
+    // This test is for 8235812
+    private static void lineBreakWithQuantifier() {
+        // key:    pattern
+        // value:  lengths of input that must match the pattern
+        Map<String, List<Integer>> cases = Map.ofEntries(
+            Map.entry("\\R?",      List.of(0, 1)),
+            Map.entry("\\R*",      List.of(0, 1, 2, 3)),
+            Map.entry("\\R+",      List.of(1, 2, 3)),
+            Map.entry("\\R{0}",    List.of(0)),
+            Map.entry("\\R{1}",    List.of(1)),
+            Map.entry("\\R{2}",    List.of(2)),
+            Map.entry("\\R{3}",    List.of(3)),
+            Map.entry("\\R{0,}",   List.of(0, 1, 2, 3)),
+            Map.entry("\\R{1,}",   List.of(1, 2, 3)),
+            Map.entry("\\R{2,}",   List.of(2, 3)),
+            Map.entry("\\R{3,}",   List.of(3)),
+            Map.entry("\\R{0,0}",  List.of(0)),
+            Map.entry("\\R{0,1}",  List.of(0, 1)),
+            Map.entry("\\R{0,2}",  List.of(0, 1, 2)),
+            Map.entry("\\R{0,3}",  List.of(0, 1, 2, 3)),
+            Map.entry("\\R{1,1}",  List.of(1)),
+            Map.entry("\\R{1,2}",  List.of(1, 2)),
+            Map.entry("\\R{1,3}",  List.of(1, 2, 3)),
+            Map.entry("\\R{2,2}",  List.of(2)),
+            Map.entry("\\R{2,3}",  List.of(2, 3)),
+            Map.entry("\\R{3,3}",  List.of(3)),
+            Map.entry("\\R",       List.of(1)),
+            Map.entry("\\R\\R",    List.of(2)),
+            Map.entry("\\R\\R\\R", List.of(3))
+        );
+
+        // key:    length of input
+        // value:  all possible inputs of given length
+        Map<Integer, List<String>> inputs = new HashMap<>();
+        String[] Rs = { "\r\n", "\r", "\n",
+                        "\u000B", "\u000C", "\u0085", "\u2028", "\u2029" };
+        StringBuilder sb = new StringBuilder();
+        for (int len = 0; len <= 3; ++len) {
+            int[] idx = new int[len + 1];
+            do {
+                sb.setLength(0);
+                for (int j = 0; j < len; ++j)
+                    sb.append(Rs[idx[j]]);
+                inputs.computeIfAbsent(len, ArrayList::new).add(sb.toString());
+                idx[0]++;
+                for (int j = 0; j < len; ++j) {
+                    if (idx[j] < Rs.length)
+                        break;
+                    idx[j] = 0;
+                    idx[j+1]++;
+                }
+            } while (idx[len] == 0);
+        }
+
+        // exhaustive testing
+        for (String patStr : cases.keySet()) {
+            Pattern[] pats = patStr.endsWith("R")
+                ? new Pattern[] { Pattern.compile(patStr) }  // no quantifiers
+                : new Pattern[] { Pattern.compile(patStr),          // greedy
+                                  Pattern.compile(patStr + "?") };  // reluctant
+            Matcher m = pats[0].matcher("");
+            for (Pattern p : pats) {
+                m.usePattern(p);
+                for (int len : cases.get(patStr)) {
+                    for (String in : inputs.get(len)) {
+                        if (!m.reset(in).matches()) {
+                            failCount++;
+                            System.err.println("Expected to match '" +
+                                    in + "' =~ /" + p + "/");
+                        }
+                    }
+                }
+            }
+        }
+        report("lineBreakWithQuantifier");
     }
 }

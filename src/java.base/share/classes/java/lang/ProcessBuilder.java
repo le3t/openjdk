@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2017, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -34,6 +34,8 @@ import java.util.Arrays;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.StringJoiner;
+import jdk.internal.event.ProcessStartEvent;
 import sun.security.action.GetPropertyAction;
 
 /**
@@ -89,7 +91,7 @@ import sun.security.action.GetPropertyAction;
  * <li><a id="redirect-output">a destination for <i>standard output</i>
  * and <i>standard error</i></a>.  By default, the subprocess writes standard
  * output and standard error to pipes.  Java code can access these pipes
- * via the input streams returned by {@link Process#getOutputStream()} and
+ * via the input streams returned by {@link Process#getInputStream()} and
  * {@link Process#getErrorStream()}.  However, standard output and
  * standard error may be redirected to other destinations using
  * {@link #redirectOutput(Redirect) redirectOutput} and
@@ -1104,11 +1106,23 @@ public final class ProcessBuilder
         }
 
         try {
-            return ProcessImpl.start(cmdarray,
+            Process process = ProcessImpl.start(cmdarray,
                                      environment,
                                      dir,
                                      redirects,
                                      redirectErrorStream);
+            ProcessStartEvent event = new ProcessStartEvent();
+            if (event.isEnabled()) {
+                StringJoiner command = new StringJoiner(" ");
+                for (String s: cmdarray) {
+                    command.add(s);
+                }
+                event.directory = dir;
+                event.command = command.toString();
+                event.pid = process.pid();
+                event.commit();
+            }
+            return process;
         } catch (IOException | IllegalArgumentException e) {
             String exceptionInfo = ": " + e.getMessage();
             Throwable cause = e;

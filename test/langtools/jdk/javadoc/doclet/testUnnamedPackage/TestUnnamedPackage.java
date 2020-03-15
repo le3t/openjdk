@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -26,7 +26,6 @@
  * @bug      4904075 4774450 5015144 8043698 8196201 8203791 8184205
  * @summary  Reference unnamed package as "Unnamed", not empty string.
  *           Generate a package summary for the unnamed package.
- * @author   jamieh
  * @library  ../../lib
  * @modules jdk.javadoc/jdk.javadoc.internal.tool
  * @build    javadoc.tester.*
@@ -67,16 +66,18 @@ public class TestUnnamedPackage extends JavadocTester {
                 "<a href=\"package-summary.html\">");
 
         checkOutput("allclasses-index.html", true,
-                "<div class=\"typeSummary\">\n<table>\n"
-                + "<caption><span>Class Summary</span><span class=\"tabEnd\">&nbsp;</span></caption>\n"
+                "<div class=\"type-summary\">\n<table>\n"
+                + "<caption><span>Class Summary</span><span class=\"tab-end\">&nbsp;</span></caption>\n"
+                + "<thead>\n"
                 + "<tr>\n"
-                + "<th class=\"colFirst\" scope=\"col\">Class</th>\n"
-                + "<th class=\"colLast\" scope=\"col\">Description</th>\n"
+                + "<th class=\"col-first\" scope=\"col\">Class</th>\n"
+                + "<th class=\"col-last\" scope=\"col\">Description</th>\n"
                 + "</tr>\n"
+                + "</thead>\n"
                 + "<tbody>\n"
-                + "<tr class=\"altColor\" id=\"i0\">\n"
-                + "<td class=\"colFirst\"><a href=\"C.html\" title=\"class in &lt;Unnamed&gt;\">C</a></td>\n"
-                + "<th class=\"colLast\" scope=\"row\">\n"
+                + "<tr class=\"alt-color\" id=\"i0\">\n"
+                + "<td class=\"col-first\"><a href=\"C.html\" title=\"class in &lt;Unnamed&gt;\">C</a></td>\n"
+                + "<th class=\"col-last\" scope=\"row\">\n"
                 + "<div class=\"block\">This is a class in the unnamed package.</div>\n"
                 + "</th>\n"
                 + "</tr>\n"
@@ -84,16 +85,18 @@ public class TestUnnamedPackage extends JavadocTester {
                 + "</table>");
 
         checkOutput("allpackages-index.html", true,
-                "<div class=\"packagesSummary\">\n<table>\n"
-                + "<caption><span>Package Summary</span><span class=\"tabEnd\">&nbsp;</span></caption>\n"
+                "<div class=\"packages-summary\">\n<table>\n"
+                + "<caption><span>Package Summary</span><span class=\"tab-end\">&nbsp;</span></caption>\n"
+                + "<thead>\n"
                 + "<tr>\n"
-                + "<th class=\"colFirst\" scope=\"col\">Package</th>\n"
-                + "<th class=\"colLast\" scope=\"col\">Description</th>\n"
+                + "<th class=\"col-first\" scope=\"col\">Package</th>\n"
+                + "<th class=\"col-last\" scope=\"col\">Description</th>\n"
                 + "</tr>\n"
+                + "</thead>\n"
                 + "<tbody>\n"
-                + "<tr class=\"altColor\">\n"
-                + "<th class=\"colFirst\" scope=\"row\"><a href=\"package-summary.html\">&lt;Unnamed&gt;</a></th>\n"
-                + "<td class=\"colLast\">\n"
+                + "<tr class=\"alt-color\">\n"
+                + "<th class=\"col-first\" scope=\"row\"><a href=\"package-summary.html\">&lt;Unnamed&gt;</a></th>\n"
+                + "<td class=\"col-last\">\n"
                 + "<div class=\"block\">This is a package comment for the unnamed package.</div>\n"
                 + "</td>\n"
                 + "</tr>\n"
@@ -101,13 +104,14 @@ public class TestUnnamedPackage extends JavadocTester {
                 + "</table>");
 
         checkOutput("type-search-index.js", true,
-                "{\"l\":\"All Classes\",\"url\":\"allclasses-index.html\"}");
+                "{\"l\":\"All Classes\",\"u\":\"allclasses-index.html\"}");
 
         checkOutput("package-search-index.js", true,
-                "{\"l\":\"All Packages\",\"url\":\"allpackages-index.html\"}");
+                "{\"l\":\"All Packages\",\"u\":\"allpackages-index.html\"}");
 
         checkOutput("index-all.html", true,
-                "<br><a href=\"allclasses-index.html\">All&nbsp;Classes</a>&nbsp;"
+                "<br><a href=\"allclasses-index.html\">All&nbsp;Classes</a>"
+                + "<span class=\"vertical-separator\">|</span>"
                 + "<a href=\"allpackages-index.html\">All&nbsp;Packages</a>");
 
         checkOutput(Output.OUT, false,

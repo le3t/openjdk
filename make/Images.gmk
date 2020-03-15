@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2014, 2019, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2014, 2020, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 #
 # This code is free software; you can redistribute it and/or modify it
@@ -102,7 +102,7 @@ $(eval $(call SetupExecute, jlink_jre, \
     WARN := Creating legacy jre image, \
     DEPS := $(JMODS) $(BASE_RELEASE_FILE) \
         $(call DependOnVariable, JDK_MODULES_LIST), \
-    OUTPUT_DIR := $(JDK_IMAGE_DIR), \
+    OUTPUT_DIR := $(JRE_IMAGE_DIR), \
     SUPPORT_DIR := $(SUPPORT_OUTPUTDIR)/images/jre, \
     PRE_COMMAND := $(RM) -r $(JRE_IMAGE_DIR), \
     COMMAND := $(JLINK_TOOL) --add-modules $(JRE_MODULES_LIST) \
@@ -112,7 +112,11 @@ $(eval $(call SetupExecute, jlink_jre, \
 JLINK_JRE_TARGETS := $(jlink_jre)
 
 ifeq ($(BUILD_CDS_ARCHIVE), true)
-  CDS_ARCHIVE := lib/server/classes.jsa
+  ifeq ($(OPENJDK_TARGET_OS), windows)
+    CDS_ARCHIVE := bin/server/classes.jsa
+  else
+    CDS_ARCHIVE := lib/server/classes.jsa
+  endif
 
   $(eval $(call SetupExecute, gen_cds_archive_jdk, \
       WARN := Creating CDS archive for jdk image, \
@@ -134,7 +138,7 @@ ifeq ($(BUILD_CDS_ARCHIVE), true)
           -Xmx128M -Xms128M $(LOG_INFO), \
   ))
 
-  JDK_TARGETS += $(gen_cds_archive_jdk)
+  JRE_TARGETS += $(gen_cds_archive_jre)
 endif
 
 ################################################################################
@@ -179,21 +183,14 @@ endif
 
 ifeq ($(GCOV_ENABLED), true)
 
-  GCOV_FIND_EXPR := -type f -name "*.gcno"
-
-  $(eval $(call SetupCopyFiles,COPY_HOTSPOT_GCOV_GCNO, \
+  $(eval $(call SetupCopyFiles,COPY_GCOV_GCNO, \
       SRC := $(OUTPUTDIR), \
       DEST := $(SYMBOLS_IMAGE_DIR)/gcov, \
-      FILES := $(shell $(FIND) $(HOTSPOT_OUTPUTDIR) $(GCOV_FIND_EXPR))))
+      FILES := $(call FindFiles, $(HOTSPOT_OUTPUTDIR) \
+          $(SUPPORT_OUTPUTDIR)/native, *.gcno) \
+  ))
 
-  SYMBOLS_TARGETS += $(COPY_HOTSPOT_GCOV_GCNO)
-
-  $(eval $(call SetupCopyFiles,COPY_JDK_GCOV_GCNO, \
-      SRC := $(OUTPUTDIR), \
-      DEST := $(SYMBOLS_IMAGE_DIR)/gcov, \
-      FILES := $(shell $(FIND) $(SUPPORT_OUTPUTDIR)/native $(GCOV_FIND_EXPR))))
-
-  SYMBOLS_TARGETS += $(COPY_JDK_GCOV_GCNO)
+  SYMBOLS_TARGETS += $(COPY_GCOV_GCNO)
 
 endif
 
@@ -211,6 +208,7 @@ ifeq ($(call isTargetOs, windows), true)
 else
   LIBS_TARGET_SUBDIR := lib
 endif
+CMDS_TARGET_SUBDIR := bin
 
 # Param 1 - dir to find debuginfo files in
 FindDebuginfoFiles = \
@@ -226,12 +224,15 @@ else
   # On Macosx, if debug symbols have not been zipped, find all files inside *.dSYM
   # dirs.
   ifeq ($(call isTargetOs, macosx), true)
-    $(eval $(call FillCacheFind, \
-        $(SUPPORT_OUTPUTDIR)/modules_cmds $(SUPPORT_OUTPUTDIR)/modules_libs))
+    $(call FillFindCache, \
+        $(SUPPORT_OUTPUTDIR)/modules_libs $(SUPPORT_OUTPUTDIR)/modules_cmds)
     FindDebuginfoFiles = \
-        $(if $(wildcard $1), $(call containing, .dSYM/, $(call CacheFind, $1)))
+        $(if $(wildcard $1), $(call containing, .dSYM/, $(call FindFiles, $1)))
   endif
 endif
+
+FILTERED_PDBS := %jimage.stripped.pdb %jpackage.stripped.pdb %java.stripped.pdb \
+    %jimage.pdb %jpackage.pdb %java.pdb %jimage.map %jpackage.map %java.map
 
 # Param 1 - either JDK or JRE
 SetupCopyDebuginfo = \
@@ -243,6 +244,13 @@ SetupCopyDebuginfo = \
               $(SUPPORT_OUTPUTDIR)/modules_libs/$m), \
       )) \
       $(eval $1_TARGETS += $$(COPY_$1_LIBS_DEBUGINFO_$m)) \
+      $(eval $(call SetupCopyFiles, COPY_$1_CMDS_DEBUGINFO_$m, \
+          SRC := $(SUPPORT_OUTPUTDIR)/modules_cmds/$m, \
+          DEST := $($1_IMAGE_DIR)/$(CMDS_TARGET_SUBDIR), \
+          FILES := $(filter-out $(FILTERED_PDBS), $(call FindDebuginfoFiles, \
+              $(SUPPORT_OUTPUTDIR)/modules_cmds/$m)), \
+      )) \
+      $(eval $1_TARGETS += $$(COPY_$1_CMDS_DEBUGINFO_$m)) \
     )
 
 # No space before argument to avoid having to put $(strip ) everywhere in
