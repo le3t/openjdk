@@ -39,7 +39,7 @@ import javax.lang.model.element.PackageElement;
 import com.sun.source.doctree.DocTree;
 import jdk.javadoc.internal.doclets.formats.html.markup.ContentBuilder;
 import jdk.javadoc.internal.doclets.formats.html.markup.HtmlStyle;
-import jdk.javadoc.internal.doclets.formats.html.markup.HtmlTag;
+import jdk.javadoc.internal.doclets.formats.html.markup.TagName;
 import jdk.javadoc.internal.doclets.formats.html.markup.HtmlTree;
 import jdk.javadoc.internal.doclets.formats.html.Navigation.PageMode;
 import jdk.javadoc.internal.doclets.formats.html.markup.StringContent;
@@ -205,8 +205,6 @@ public class DeprecatedListWriter extends SubWriterHolderWriter {
 
     private EnumMap<DeprElementKind, AbstractMemberWriter> writerMap;
 
-    private HtmlConfiguration configuration;
-
     private final Navigation navBar;
 
     /**
@@ -218,7 +216,6 @@ public class DeprecatedListWriter extends SubWriterHolderWriter {
 
     public DeprecatedListWriter(HtmlConfiguration configuration, DocPath filename) {
         super(configuration, filename);
-        this.configuration = configuration;
         this.navBar = new Navigation(null, configuration, PageMode.DEPRECATED, path);
         NestedClassWriterImpl classW = new NestedClassWriterImpl(this);
         writerMap = new EnumMap<>(DeprElementKind.class);
@@ -335,7 +332,7 @@ public class DeprecatedListWriter extends SubWriterHolderWriter {
         Content headingContent = contents.contentsHeading;
         div.add(HtmlTree.HEADING_TITLE(Headings.CONTENT_HEADING,
                 headingContent));
-        Content ul = new HtmlTree(HtmlTag.UL);
+        Content ul = new HtmlTree(TagName.UL);
         for (DeprElementKind kind : DeprElementKind.values()) {
             addIndexLink(deprapi, kind, ul);
         }
@@ -373,7 +370,7 @@ public class DeprecatedListWriter extends SubWriterHolderWriter {
             String tableSummary, TableHeader tableHeader, Content contentTree) {
         if (deprList.size() > 0) {
             Content caption = contents.getContent(headingKey);
-            Table table = new Table(HtmlStyle.deprecatedSummary)
+            Table table = new Table(HtmlStyle.deprecatedSummary, HtmlStyle.summaryTable)
                     .setCaption(caption)
                     .setHeader(tableHeader)
                     .setId(id)
@@ -401,9 +398,8 @@ public class DeprecatedListWriter extends SubWriterHolderWriter {
                 }
                 table.addRow(link, desc);
             }
-            Content li = HtmlTree.LI(HtmlStyle.blockList, table);
-            Content ul = HtmlTree.UL(HtmlStyle.blockList, li);
-            contentTree.add(ul);
+            // note: singleton list
+            contentTree.add(HtmlTree.UL(HtmlStyle.blockList, HtmlTree.LI(table)));
         }
     }
 

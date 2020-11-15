@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013, 2019, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2013, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,9 +25,9 @@
 #ifndef SHARE_GC_G1_G1GCPHASETIMES_HPP
 #define SHARE_GC_G1_G1GCPHASETIMES_HPP
 
+#include "gc/shared/oopStorageSet.hpp"
 #include "gc/shared/referenceProcessorPhaseTimes.hpp"
 #include "gc/shared/weakProcessorPhaseTimes.hpp"
-#include "jfr/jfrEvents.hpp"
 #include "logging/logLevel.hpp"
 #include "memory/allocation.hpp"
 #include "utilities/macros.hpp"
@@ -49,15 +49,16 @@ class G1GCPhaseTimes : public CHeapObj<mtGC> {
     ExtRootScan,
     ThreadRoots,
     UniverseRoots,
-    JNIRoots,
     ObjectSynchronizerRoots,
     ManagementRoots,
-    SystemDictionaryRoots,
     CLDGRoots,
     JVMTIRoots,
     AOT_ONLY(AOTCodeRoots COMMA)
     CMRefRoots,
-    MergeER,
+    // For every OopStorage there will be one element in the enum, starting with
+    // StrongOopStorageSetRoots.
+    StrongOopStorageSetRoots,
+    MergeER = StrongOopStorageSetRoots + OopStorageSet::strong_count,
     MergeRS,
     OptMergeRS,
     MergeLB,
@@ -85,7 +86,7 @@ class G1GCPhaseTimes : public CHeapObj<mtGC> {
   };
 
   static const GCParPhases ExtRootScanSubPhasesFirst = ThreadRoots;
-  static const GCParPhases ExtRootScanSubPhasesLast = CMRefRoots;
+  static const GCParPhases ExtRootScanSubPhasesLast = GCParPhases(MergeER - 1);
 
   enum GCMergeRSWorkTimes {
     MergeRSMergedSparse,
@@ -142,6 +143,8 @@ class G1GCPhaseTimes : public CHeapObj<mtGC> {
 
   double _cur_prepare_tlab_time_ms;
   double _cur_resize_tlab_time_ms;
+
+  double _cur_concatenate_dirty_card_logs_time_ms;
 
   double _cur_derived_pointer_table_update_time_ms;
 
@@ -250,6 +253,10 @@ class G1GCPhaseTimes : public CHeapObj<mtGC> {
 
   void record_resize_tlab_time_ms(double ms) {
     _cur_resize_tlab_time_ms = ms;
+  }
+
+  void record_concatenate_dirty_card_logs_time_ms(double ms) {
+    _cur_concatenate_dirty_card_logs_time_ms = ms;
   }
 
   void record_derived_pointer_table_update_time(double ms) {
@@ -449,30 +456,6 @@ public:
   ~G1EvacPhaseWithTrimTimeTracker();
 
   void stop();
-};
-
-class G1GCParPhaseTimesTracker : public CHeapObj<mtGC> {
-protected:
-  Ticks _start_time;
-  G1GCPhaseTimes::GCParPhases _phase;
-  G1GCPhaseTimes* _phase_times;
-  uint _worker_id;
-  EventGCPhaseParallel _event;
-  bool _must_record;
-
-public:
-  G1GCParPhaseTimesTracker(G1GCPhaseTimes* phase_times, G1GCPhaseTimes::GCParPhases phase, uint worker_id, bool must_record = true);
-  virtual ~G1GCParPhaseTimesTracker();
-};
-
-class G1EvacPhaseTimesTracker : public G1GCParPhaseTimesTracker {
-  Tickspan _total_time;
-  Tickspan _trim_time;
-
-  G1EvacPhaseWithTrimTimeTracker _trim_tracker;
-public:
-  G1EvacPhaseTimesTracker(G1GCPhaseTimes* phase_times, G1ParScanThreadState* pss, G1GCPhaseTimes::GCParPhases phase, uint worker_id);
-  virtual ~G1EvacPhaseTimesTracker();
 };
 
 #endif // SHARE_GC_G1_G1GCPHASETIMES_HPP

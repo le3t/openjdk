@@ -149,6 +149,7 @@ module java.base {
         java.management,
         java.naming,
         java.rmi,
+        jdk.jartool,
         jdk.jlink,
         jdk.net,
         jdk.incubator.foreign;
@@ -172,19 +173,14 @@ module java.base {
     exports jdk.internal.org.objectweb.asm to
         jdk.jartool,
         jdk.jfr,
-        jdk.jlink,
-        jdk.scripting.nashorn;
+        jdk.jlink;
     exports jdk.internal.org.objectweb.asm.tree to
         jdk.jfr,
         jdk.jlink;
     exports jdk.internal.org.objectweb.asm.util to
-        jdk.jfr,
-        jdk.scripting.nashorn;
+        jdk.jfr;
     exports jdk.internal.org.objectweb.asm.commons to
-        jdk.jfr,
-        jdk.scripting.nashorn;
-    exports jdk.internal.org.objectweb.asm.signature to
-        jdk.scripting.nashorn;
+        jdk.jfr;
     exports jdk.internal.org.xml.sax to
         jdk.jfr;
     exports jdk.internal.org.xml.sax.helpers to
@@ -204,8 +200,6 @@ module java.base {
         jdk.jfr,
         jdk.jshell,
         jdk.nio.mapmode,
-        jdk.scripting.nashorn,
-        jdk.scripting.nashorn.shell,
         jdk.unsupported,
         jdk.internal.vm.ci,
         jdk.incubator.foreign;
@@ -230,14 +224,16 @@ module java.base {
         java.sql.rowset,
         jdk.dynalink,
         jdk.internal.vm.ci,
-        jdk.scripting.nashorn,
         jdk.unsupported;
     exports jdk.internal.vm to
         jdk.internal.jvmstat,
         jdk.management.agent;
     exports jdk.internal.vm.annotation to
         jdk.internal.vm.ci,
+        jdk.incubator.foreign,
         jdk.unsupported;
+    exports jdk.internal.util to
+            jdk.incubator.foreign;
     exports jdk.internal.util.jar to
         jdk.jartool;
     exports jdk.internal.util.xml to
@@ -284,6 +280,7 @@ module java.base {
     exports sun.security.action to
         java.desktop,
         java.security.jgss,
+        jdk.crypto.ec,
         jdk.incubator.foreign;
     exports sun.security.internal.interfaces to
         jdk.crypto.cryptoki;
@@ -301,6 +298,7 @@ module java.base {
         java.rmi,
         java.security.jgss,
         jdk.crypto.cryptoki,
+        jdk.crypto.ec,
         jdk.security.auth;
     exports sun.security.provider.certpath to
         java.naming;

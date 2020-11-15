@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2019, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -61,13 +61,7 @@ const Type::TypeInfo Type::_type_info[Type::lastype] = {
   { Bad,             T_ILLEGAL,    "tuple:",        false, Node::NotAMachineReg, relocInfo::none          },  // Tuple
   { Bad,             T_ARRAY,      "array:",        false, Node::NotAMachineReg, relocInfo::none          },  // Array
 
-#ifdef SPARC
-  { Bad,             T_ILLEGAL,    "vectors:",      false, 0,                    relocInfo::none          },  // VectorS
-  { Bad,             T_ILLEGAL,    "vectord:",      false, Op_RegD,              relocInfo::none          },  // VectorD
-  { Bad,             T_ILLEGAL,    "vectorx:",      false, 0,                    relocInfo::none          },  // VectorX
-  { Bad,             T_ILLEGAL,    "vectory:",      false, 0,                    relocInfo::none          },  // VectorY
-  { Bad,             T_ILLEGAL,    "vectorz:",      false, 0,                    relocInfo::none          },  // VectorZ
-#elif defined(PPC64)
+#if defined(PPC64)
   { Bad,             T_ILLEGAL,    "vectors:",      false, 0,                    relocInfo::none          },  // VectorS
   { Bad,             T_ILLEGAL,    "vectord:",      false, Op_RegL,              relocInfo::none          },  // VectorD
   { Bad,             T_ILLEGAL,    "vectorx:",      false, Op_VecX,              relocInfo::none          },  // VectorX
@@ -810,6 +804,35 @@ bool Type::interface_vs_oop(const Type *t) const {
 
 #endif
 
+void Type::check_symmetrical(const Type *t, const Type *mt) const {
+#ifdef ASSERT
+  assert(mt == t->xmeet(this), "meet not commutative");
+  const Type* dual_join = mt->_dual;
+  const Type *t2t    = dual_join->xmeet(t->_dual);
+  const Type *t2this = dual_join->xmeet(this->_dual);
+
+  // Interface meet Oop is Not Symmetric:
+  // Interface:AnyNull meet Oop:AnyNull == Interface:AnyNull
+  // Interface:NotNull meet Oop:NotNull == java/lang/Object:NotNull
+
+  if( !interface_vs_oop(t) && (t2t != t->_dual || t2this != this->_dual) ) {
+    tty->print_cr("=== Meet Not Symmetric ===");
+    tty->print("t   =                   ");              t->dump(); tty->cr();
+    tty->print("this=                   ");                 dump(); tty->cr();
+    tty->print("mt=(t meet this)=       ");             mt->dump(); tty->cr();
+
+    tty->print("t_dual=                 ");       t->_dual->dump(); tty->cr();
+    tty->print("this_dual=              ");          _dual->dump(); tty->cr();
+    tty->print("mt_dual=                ");      mt->_dual->dump(); tty->cr();
+
+    tty->print("mt_dual meet t_dual=    "); t2t           ->dump(); tty->cr();
+    tty->print("mt_dual meet this_dual= "); t2this        ->dump(); tty->cr();
+
+    fatal("meet not symmetric" );
+  }
+#endif
+}
+
 //------------------------------meet-------------------------------------------
 // Compute the MEET of two types.  NOT virtual.  It enforces that meet is
 // commutative and the lattice is symmetric.
@@ -827,33 +850,28 @@ const Type *Type::meet_helper(const Type *t, bool include_speculative) const {
   t = t->maybe_remove_speculative(include_speculative);
 
   const Type *mt = this_t->xmeet(t);
+#ifdef ASSERT
   if (isa_narrowoop() || t->isa_narrowoop()) return mt;
   if (isa_narrowklass() || t->isa_narrowklass()) return mt;
-#ifdef ASSERT
-  assert(mt == t->xmeet(this_t), "meet not commutative");
-  const Type* dual_join = mt->_dual;
-  const Type *t2t    = dual_join->xmeet(t->_dual);
-  const Type *t2this = dual_join->xmeet(this_t->_dual);
-
-  // Interface meet Oop is Not Symmetric:
-  // Interface:AnyNull meet Oop:AnyNull == Interface:AnyNull
-  // Interface:NotNull meet Oop:NotNull == java/lang/Object:NotNull
-
-  if( !interface_vs_oop(t) && (t2t != t->_dual || t2this != this_t->_dual) ) {
-    tty->print_cr("=== Meet Not Symmetric ===");
-    tty->print("t   =                   ");              t->dump(); tty->cr();
-    tty->print("this=                   ");         this_t->dump(); tty->cr();
-    tty->print("mt=(t meet this)=       ");             mt->dump(); tty->cr();
-
-    tty->print("t_dual=                 ");       t->_dual->dump(); tty->cr();
-    tty->print("this_dual=              ");  this_t->_dual->dump(); tty->cr();
-    tty->print("mt_dual=                ");      mt->_dual->dump(); tty->cr();
-
-    tty->print("mt_dual meet t_dual=    "); t2t           ->dump(); tty->cr();
-    tty->print("mt_dual meet this_dual= "); t2this        ->dump(); tty->cr();
-
-    fatal("meet not symmetric" );
+  Compile* C = Compile::current();
+  if (!C->_type_verify_symmetry) {
+    return mt;
   }
+  this_t->check_symmetrical(t, mt);
+  // In the case of an array, computing the meet above, caused the
+  // computation of the meet of the elements which at verification
+  // time caused the computation of the meet of the dual of the
+  // elements. Computing the meet of the dual of the arrays here
+  // causes the meet of the dual of the elements to be computed which
+  // would cause the meet of the dual of the dual of the elements,
+  // that is the meet of the elements already computed above to be
+  // computed. Avoid redundant computations by requesting no
+  // verification.
+  C->_type_verify_symmetry = false;
+  const Type *mt_dual = this_t->_dual->xmeet(t->_dual);
+  this_t->_dual->check_symmetrical(t->_dual, mt_dual);
+  assert(!C->_type_verify_symmetry, "shouldn't have changed");
+  C->_type_verify_symmetry = true;
 #endif
   return mt;
 }
@@ -2200,7 +2218,6 @@ bool TypeAry::empty(void) const {
 
 //--------------------------ary_must_be_exact----------------------------------
 bool TypeAry::ary_must_be_exact() const {
-  if (!UseExactTypes)       return false;
   // This logic looks at the element type of an array, and returns true
   // if the element type is either a primitive or a final instance class.
   // In such cases, an array built on this ary must have no subclasses.
@@ -2992,8 +3009,8 @@ TypeOopPtr::TypeOopPtr(TYPES t, PTR ptr, ciKlass* k, bool xk, ciObject* o, int o
         assert(this->isa_instptr(), "must be an instance ptr.");
 
         if (klass() == ciEnv::current()->Class_klass() &&
-            (_offset == java_lang_Class::klass_offset_in_bytes() ||
-             _offset == java_lang_Class::array_klass_offset_in_bytes())) {
+            (_offset == java_lang_Class::klass_offset() ||
+             _offset == java_lang_Class::array_klass_offset())) {
           // Special hidden fields from the Class.
           assert(this->isa_instptr(), "must be an instance ptr.");
           _is_ptr_to_narrowoop = false;
@@ -3174,13 +3191,11 @@ const TypeOopPtr* TypeOopPtr::make_from_klass_common(ciKlass *klass, bool klass_
           klass_is_exact = sub->is_final();
         }
       }
-      if (!klass_is_exact && try_for_exact
-          && deps != NULL && UseExactTypes) {
-        if (!ik->is_interface() && !ik->has_subklass()) {
-          // Add a dependence; if concrete subclass added we need to recompile
-          deps->assert_leaf_type(ik);
-          klass_is_exact = true;
-        }
+      if (!klass_is_exact && try_for_exact && deps != NULL &&
+          !ik->is_interface() && !ik->has_subklass()) {
+        // Add a dependence; if concrete subclass added we need to recompile
+        deps->assert_leaf_type(ik);
+        klass_is_exact = true;
       }
     }
     return TypeInstPtr::make(TypePtr::BotPTR, klass, klass_is_exact, NULL, 0);
@@ -3491,8 +3506,7 @@ const TypeInstPtr *TypeInstPtr::make(PTR ptr,
   // Ptr is never Null
   assert( ptr != Null, "NULL pointers are not typed" );
 
-  assert(instance_id <= 0 || xk || !UseExactTypes, "instances are always exactly typed");
-  if (!UseExactTypes)  xk = false;
+  assert(instance_id <= 0 || xk, "instances are always exactly typed");
   if (ptr == Constant) {
     // Note:  This case includes meta-object constants, such as methods.
     xk = true;
@@ -3544,7 +3558,6 @@ const Type *TypeInstPtr::cast_to_ptr_type(PTR ptr) const {
 //-----------------------------cast_to_exactness-------------------------------
 const Type *TypeInstPtr::cast_to_exactness(bool klass_is_exact) const {
   if( klass_is_exact == _klass_is_exact ) return this;
-  if (!UseExactTypes)  return this;
   if (!_klass->is_loaded())  return this;
   ciInstanceKlass* ik = _klass->as_instance_klass();
   if( (ik->is_final() || _const_oop) )  return this;  // cannot clear xk
@@ -4051,8 +4064,7 @@ const TypeAryPtr *TypeAryPtr::make(PTR ptr, const TypeAry *ary, ciKlass* k, bool
   assert(!(k == NULL && ary->_elem->isa_int()),
          "integral arrays must be pre-equipped with a class");
   if (!xk)  xk = ary->ary_must_be_exact();
-  assert(instance_id <= 0 || xk || !UseExactTypes, "instances are always exactly typed");
-  if (!UseExactTypes)  xk = (ptr == Constant);
+  assert(instance_id <= 0 || xk, "instances are always exactly typed");
   return (TypeAryPtr*)(new TypeAryPtr(ptr, NULL, ary, k, xk, offset, instance_id, false, speculative, inline_depth))->hashcons();
 }
 
@@ -4064,8 +4076,7 @@ const TypeAryPtr *TypeAryPtr::make(PTR ptr, ciObject* o, const TypeAry *ary, ciK
          "integral arrays must be pre-equipped with a class");
   assert( (ptr==Constant && o) || (ptr!=Constant && !o), "" );
   if (!xk)  xk = (o != NULL) || ary->ary_must_be_exact();
-  assert(instance_id <= 0 || xk || !UseExactTypes, "instances are always exactly typed");
-  if (!UseExactTypes)  xk = (ptr == Constant);
+  assert(instance_id <= 0 || xk, "instances are always exactly typed");
   return (TypeAryPtr*)(new TypeAryPtr(ptr, o, ary, k, xk, offset, instance_id, is_autobox_cache, speculative, inline_depth))->hashcons();
 }
 
@@ -4079,7 +4090,6 @@ const Type *TypeAryPtr::cast_to_ptr_type(PTR ptr) const {
 //-----------------------------cast_to_exactness-------------------------------
 const Type *TypeAryPtr::cast_to_exactness(bool klass_is_exact) const {
   if( klass_is_exact == _klass_is_exact ) return this;
-  if (!UseExactTypes)  return this;
   if (_ary->ary_must_be_exact())  return this;  // cannot clear xk
   return make(ptr(), const_oop(), _ary, klass(), klass_is_exact, _offset, _instance_id, _speculative, _inline_depth);
 }
@@ -4315,7 +4325,7 @@ const Type *TypeAryPtr::xmeet_helper(const Type *t) const {
            (tap->_klass_is_exact && !tap->klass()->is_subtype_of(klass())) ||
            // 'this' is exact and super or unrelated:
            (this->_klass_is_exact && !klass()->is_subtype_of(tap->klass())))) {
-      if (above_centerline(ptr)) {
+      if (above_centerline(ptr) || (tary->_elem->make_ptr() && above_centerline(tary->_elem->make_ptr()->_ptr))) {
         tary = TypeAry::make(Type::BOTTOM, tary->_size, tary->_stable);
       }
       return make(NotNull, NULL, tary, lazy_klass, false, off, InstanceBot, speculative, depth);
@@ -5026,7 +5036,6 @@ const Type *TypeKlassPtr::cast_to_ptr_type(PTR ptr) const {
 //-----------------------------cast_to_exactness-------------------------------
 const Type *TypeKlassPtr::cast_to_exactness(bool klass_is_exact) const {
   if( klass_is_exact == _klass_is_exact ) return this;
-  if (!UseExactTypes)  return this;
   return make(klass_is_exact ? Constant : NotNull, _klass, _offset);
 }
 

@@ -45,7 +45,6 @@ void ShenandoahArguments::initialize() {
 
   FLAG_SET_DEFAULT(ShenandoahSATBBarrier,            false);
   FLAG_SET_DEFAULT(ShenandoahLoadRefBarrier,         false);
-  FLAG_SET_DEFAULT(ShenandoahKeepAliveBarrier,       false);
   FLAG_SET_DEFAULT(ShenandoahStoreValEnqueueBarrier, false);
   FLAG_SET_DEFAULT(ShenandoahCASBarrier,             false);
   FLAG_SET_DEFAULT(ShenandoahCloneBarrier,           false);
@@ -132,7 +131,6 @@ void ShenandoahArguments::initialize() {
   if (ShenandoahVerifyOptoBarriers &&
           (!FLAG_IS_DEFAULT(ShenandoahSATBBarrier)            ||
            !FLAG_IS_DEFAULT(ShenandoahLoadRefBarrier)         ||
-           !FLAG_IS_DEFAULT(ShenandoahKeepAliveBarrier)       ||
            !FLAG_IS_DEFAULT(ShenandoahStoreValEnqueueBarrier) ||
            !FLAG_IS_DEFAULT(ShenandoahCASBarrier)             ||
            !FLAG_IS_DEFAULT(ShenandoahCloneBarrier)
@@ -145,24 +143,9 @@ void ShenandoahArguments::initialize() {
 #endif // ASSERT
 #endif // COMPILER2
 
-  if (AlwaysPreTouch) {
-    // Shenandoah handles pre-touch on its own. It does not let the
-    // generic storage code to do the pre-touch before Shenandoah has
-    // a chance to do it on its own.
-    FLAG_SET_DEFAULT(AlwaysPreTouch, false);
-    FLAG_SET_DEFAULT(ShenandoahAlwaysPreTouch, true);
-  }
-
   // Record more information about previous cycles for improved debugging pleasure
   if (FLAG_IS_DEFAULT(LogEventsBufferEntries)) {
     FLAG_SET_DEFAULT(LogEventsBufferEntries, 250);
-  }
-
-  if (ShenandoahAlwaysPreTouch) {
-    if (!FLAG_IS_DEFAULT(ShenandoahUncommit)) {
-      warning("AlwaysPreTouch is enabled, disabling ShenandoahUncommit");
-    }
-    FLAG_SET_DEFAULT(ShenandoahUncommit, false);
   }
 
   if ((InitialHeapSize == MaxHeapSize) && ShenandoahUncommit) {

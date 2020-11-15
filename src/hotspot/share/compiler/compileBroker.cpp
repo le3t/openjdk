@@ -33,6 +33,7 @@
 #include "compiler/compilationPolicy.hpp"
 #include "compiler/compileBroker.hpp"
 #include "compiler/compileLog.hpp"
+#include "compiler/compilerEvent.hpp"
 #include "compiler/compilerOracle.hpp"
 #include "compiler/directivesParser.hpp"
 #include "interpreter/linkResolver.hpp"
@@ -592,6 +593,36 @@ CompilerCounters::CompilerCounters() {
   _compile_type = CompileBroker::no_compile;
 }
 
+#if INCLUDE_JFR && COMPILER2_OR_JVMCI
+// It appends new compiler phase names to growable array phase_names(a new CompilerPhaseType mapping
+// in compiler/compilerEvent.cpp) and registers it with its serializer.
+//
+// c2 uses explicit CompilerPhaseType idToPhase mapping in opto/phasetype.hpp,
+// so if c2 is used, it should be always registered first.
+// This function is called during vm initialization.
+void register_jfr_phasetype_serializer(CompilerType compiler_type) {
+  ResourceMark rm;
+  static bool first_registration = true;
+  if (compiler_type == compiler_jvmci) {
+    // register serializer, phases will be added later lazily.
+    GrowableArray<const char*>* jvmci_phase_names = new GrowableArray<const char*>(1);
+    jvmci_phase_names->append("NOT_A_PHASE_NAME");
+    CompilerEvent::PhaseEvent::register_phases(jvmci_phase_names);
+    first_registration = false;
+#ifdef COMPILER2
+  } else if (compiler_type == compiler_c2) {
+    assert(first_registration, "invariant"); // c2 must be registered first.
+    GrowableArray<const char*>* c2_phase_names = new GrowableArray<const char*>(PHASE_NUM_TYPES);
+    for (int i = 0; i < PHASE_NUM_TYPES; i++) {
+      c2_phase_names->append(CompilerPhaseTypeHelper::to_string((CompilerPhaseType)i));
+    }
+    CompilerEvent::PhaseEvent::register_phases(c2_phase_names);
+    first_registration = false;
+#endif // COMPILER2
+  }
+}
+#endif // INCLUDE_JFR && COMPILER2_OR_JVMCI
+
 // ------------------------------------------------------------------
 // CompileBroker::compilation_init
 //
@@ -638,14 +669,25 @@ void CompileBroker::compilation_init_phase1(Thread* THREAD) {
   if (true JVMCI_ONLY( && !UseJVMCICompiler)) {
     if (_c2_count > 0) {
       _compilers[1] = new C2Compiler();
+      // Register c2 first as c2 CompilerPhaseType idToPhase mapping is explicit.
+      // idToPhase mapping for c2 is in opto/phasetype.hpp
+      JFR_ONLY(register_jfr_phasetype_serializer(compiler_c2);)
     }
   }
 #endif // COMPILER2
 
+#if INCLUDE_JVMCI
+   // Register after c2 registration.
+   // JVMCI CompilerPhaseType idToPhase mapping is dynamic.
+   if (EnableJVMCI) {
+     JFR_ONLY(register_jfr_phasetype_serializer(compiler_jvmci);)
+   }
+#endif // INCLUDE_JVMCI
+
   // Start the compiler thread(s) and the sweeper thread
   init_compiler_sweeper_threads();
   // totalTime performance counter is always created as it is required
-  // by the implementation of java.lang.management.CompilationMBean.
+  // by the implementation of java.lang.management.CompilationMXBean.
   {
     // Ensure OOM leads to vm_exit_during_initialization.
     EXCEPTION_MARK;
@@ -843,6 +885,9 @@ JavaThread* CompileBroker::make_thread(jobject thread_handle, CompileQueue* queu
 
 
 void CompileBroker::init_compiler_sweeper_threads() {
+  NMethodSweeper::set_sweep_threshold_bytes(static_cast<size_t>(SweeperThreshold * ReservedCodeCacheSize / 100.0));
+  log_info(codecache, sweep)("Sweeper threshold: " SIZE_FORMAT " bytes", NMethodSweeper::sweep_threshold_bytes());
+
   // Ensure any exceptions lead to vm_exit_during_initialization.
   EXCEPTION_MARK;
 #if !defined(ZERO)
@@ -1156,7 +1201,7 @@ void CompileBroker::compile_method_base(const methodHandle& method,
       // Don't allow blocking compilation requests if we are in JVMCIRuntime::shutdown
       // to avoid deadlock between compiler thread(s) and threads run at shutdown
       // such as the DestroyJavaVM thread.
-      if (JVMCI::shutdown_called()) {
+      if (JVMCI::in_shutdown()) {
         blocking = false;
       }
     }
@@ -1610,7 +1655,8 @@ void CompileBroker::wait_for_completion(CompileTask* task) {
   bool free_task;
 #if INCLUDE_JVMCI
   AbstractCompiler* comp = compiler(task->comp_level());
-  if (comp->is_jvmci()) {
+  if (!UseJVMCINativeLibrary && comp->is_jvmci() && !task->should_wait_for_compilation()) {
+    // It may return before compilation is completed.
     free_task = wait_for_jvmci_completion((JVMCICompiler*) comp, task, thread);
   } else
 #endif
@@ -2018,19 +2064,17 @@ void CompileBroker::post_compile(CompilerThread* thread, CompileTask* task, bool
   assert(task->compile_id() != CICrashAt, "just as planned");
 }
 
-static void post_compilation_event(EventCompilation* event, CompileTask* task) {
-  assert(event != NULL, "invariant");
-  assert(event->should_commit(), "invariant");
+static void post_compilation_event(EventCompilation& event, CompileTask* task) {
   assert(task != NULL, "invariant");
-  event->set_compileId(task->compile_id());
-  event->set_compiler(task->compiler()->type());
-  event->set_method(task->method());
-  event->set_compileLevel(task->comp_level());
-  event->set_succeded(task->is_success());
-  event->set_isOsr(task->osr_bci() != CompileBroker::standard_entry_bci);
-  event->set_codeSize((task->code() == NULL) ? 0 : task->code()->total_size());
-  event->set_inlinedBytes(task->num_inlined_bytecodes());
-  event->commit();
+  CompilerEvent::CompilationEvent::post(event,
+                                        task->compile_id(),
+                                        task->compiler()->type(),
+                                        task->method(),
+                                        task->comp_level(),
+                                        task->is_success(),
+                                        task->osr_bci() != CompileBroker::standard_entry_bci,
+                                        (task->code() == NULL) ? 0 : task->code()->total_size(),
+                                        task->num_inlined_bytecodes());
 }
 
 int DirectivesStack::_depth = 0;
@@ -2105,17 +2149,23 @@ void CompileBroker::invoke_compiler_on_method(CompileTask* task) {
 
     TraceTime t1("compilation", &time);
     EventCompilation event;
+    JVMCICompileState compile_state(task);
+    JVMCIRuntime *runtime = NULL;
 
-    // Skip redefined methods
-    if (target_handle->is_old()) {
+    if (JVMCI::in_shutdown()) {
+      failure_reason = "in JVMCI shutdown";
+      retry_message = "not retryable";
+      compilable = ciEnv::MethodCompilable_never;
+    } else if (compile_state.target_method_is_old()) {
+      // Skip redefined methods
       failure_reason = "redefined method";
       retry_message = "not retryable";
       compilable = ciEnv::MethodCompilable_never;
     } else {
-      JVMCICompileState compile_state(task);
       JVMCIEnv env(thread, &compile_state, __FILE__, __LINE__);
       methodHandle method(thread, target_handle);
-      env.runtime()->compile_method(&env, jvmci, method, osr_bci);
+      runtime = env.runtime();
+      runtime->compile_method(&env, jvmci, method, osr_bci);
 
       failure_reason = compile_state.failure_reason();
       failure_reason_on_C_heap = compile_state.failure_reason_on_C_heap();
@@ -2129,7 +2179,7 @@ void CompileBroker::invoke_compiler_on_method(CompileTask* task) {
     }
     post_compile(thread, task, task->code() != NULL, NULL, compilable, failure_reason);
     if (event.should_commit()) {
-      post_compilation_event(&event, task);
+      post_compilation_event(event, task);
     }
 
   } else
@@ -2149,7 +2199,12 @@ void CompileBroker::invoke_compiler_on_method(CompileTask* task) {
     // The thread-env() field is cleared in ~CompileTaskWrapper.
 
     // Cache Jvmti state
-    ci_env.cache_jvmti_state();
+    bool method_is_old = ci_env.cache_jvmti_state();
+
+    // Skip redefined methods
+    if (method_is_old) {
+      ci_env.record_method_not_compilable("redefined method", true);
+    }
 
     // Cache DTrace flags
     ci_env.cache_dtrace_flags();
@@ -2161,7 +2216,7 @@ void CompileBroker::invoke_compiler_on_method(CompileTask* task) {
 
     if (comp == NULL) {
       ci_env.record_method_not_compilable("no compiler", !TieredCompilation);
-    } else {
+    } else if (!ci_env.failing()) {
       if (WhiteBoxAPI && WhiteBox::compilation_locked) {
         MonitorLocker locker(Compilation_lock, Mutex::_no_safepoint_check_flag);
         while (WhiteBox::compilation_locked) {
@@ -2189,7 +2244,7 @@ void CompileBroker::invoke_compiler_on_method(CompileTask* task) {
 
     post_compile(thread, task, !ci_env.failing(), &ci_env, compilable, failure_reason);
     if (event.should_commit()) {
-      post_compilation_event(&event, task);
+      post_compilation_event(event, task);
     }
   }
   // Remove the JNI handle block after the ciEnv destructor has run in
@@ -2429,7 +2484,7 @@ void CompileBroker::collect_statistics(CompilerThread* thread, elapsedTimer time
     // Compilation succeeded
 
     // update compilation ticks - used by the implementation of
-    // java.lang.management.CompilationMBean
+    // java.lang.management.CompilationMXBean
     _perf_total_compilation->inc(time.ticks());
     _peak_compilation_time = time.milliseconds() > _peak_compilation_time ? time.milliseconds() : _peak_compilation_time;
 

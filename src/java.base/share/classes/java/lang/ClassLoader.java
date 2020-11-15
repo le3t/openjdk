@@ -133,11 +133,12 @@ import sun.security.util.SecurityConstants;
  *     It is the virtual machine's built-in class loader, typically represented
  *     as {@code null}, and does not have a parent.</li>
  * <li><p>{@linkplain #getPlatformClassLoader() Platform class loader}.
- *     All <em>platform classes</em> are visible to the platform class loader
- *     that can be used as the parent of a {@code ClassLoader} instance.
- *     Platform classes include Java SE platform APIs, their implementation
- *     classes and JDK-specific run-time classes that are defined by the
- *     platform class loader or its ancestors.
+ *     The platform class loader is responsible for loading the
+ *     <em>platform classes</em>.  Platform classes include Java SE platform APIs,
+ *     their implementation classes and JDK-specific run-time classes that are
+ *     defined by the platform class loader or its ancestors.
+ *     The platform class loader can be used as the parent of a {@code ClassLoader}
+ *     instance.
  *     <p> To allow for upgrading/overriding of modules defined to the platform
  *     class loader, and where upgraded modules read modules defined to class
  *     loaders other than the platform class loader and its ancestors, then
@@ -151,8 +152,9 @@ import sun.security.util.SecurityConstants;
  *     from the platform class loader.
  *     The system class loader is typically used to define classes on the
  *     application class path, module path, and JDK-specific tools.
- *     The platform class loader is a parent or an ancestor of the system class
- *     loader that all platform classes are visible to it.</li>
+ *     The platform class loader is the parent or an ancestor of the system class
+ *     loader, so the system class loader can load platform classes by delegating
+ *     to its parent.</li>
  * </ul>
  *
  * <p> Normally, the Java virtual machine loads classes from the local file
@@ -734,7 +736,6 @@ public abstract class ClassLoader {
      *         The module name; or {@code null} to find the class in the
      *         {@linkplain #getUnnamedModule() unnamed module} for this
      *         class loader
-
      * @param  name
      *         The <a href="#binary-name">binary name</a> of the class
      *
@@ -1115,6 +1116,29 @@ public abstract class ClassLoader {
     static native Class<?> defineClass2(ClassLoader loader, String name, java.nio.ByteBuffer b,
                                         int off, int len, ProtectionDomain pd,
                                         String source);
+
+    /**
+     * Defines a class of the given flags via Lookup.defineClass.
+     *
+     * @param loader the defining loader
+     * @param lookup nest host of the Class to be defined
+     * @param name the binary name or {@code null} if not findable
+     * @param b class bytes
+     * @param off the start offset in {@code b} of the class bytes
+     * @param len the length of the class bytes
+     * @param pd protection domain
+     * @param initialize initialize the class
+     * @param flags flags
+     * @param classData class data
+     */
+    static native Class<?> defineClass0(ClassLoader loader,
+                                        Class<?> lookup,
+                                        String name,
+                                        byte[] b, int off, int len,
+                                        ProtectionDomain pd,
+                                        boolean initialize,
+                                        int flags,
+                                        Object classData);
 
     // true if the name is null or has the potential to be a valid binary name
     private boolean checkName(String name) {
@@ -2374,7 +2398,7 @@ public abstract class ClassLoader {
         return null;
     }
 
-    private final NativeLibraries libraries = new NativeLibraries(this);
+    private final NativeLibraries libraries = NativeLibraries.jniNativeLibraries(this);
 
     // Invoked in the java.lang.Runtime class to implement load and loadLibrary.
     static NativeLibrary loadLibrary(Class<?> fromClass, File file) {

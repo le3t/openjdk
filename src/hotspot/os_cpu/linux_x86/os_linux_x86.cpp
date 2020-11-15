@@ -38,13 +38,13 @@
 #include "prims/jniFastGetField.hpp"
 #include "prims/jvm_misc.hpp"
 #include "runtime/arguments.hpp"
-#include "runtime/extendedPC.hpp"
 #include "runtime/frame.inline.hpp"
 #include "runtime/interfaceSupport.inline.hpp"
 #include "runtime/java.hpp"
 #include "runtime/javaCalls.hpp"
 #include "runtime/mutexLocker.hpp"
 #include "runtime/osThread.hpp"
+#include "runtime/safepointMechanism.hpp"
 #include "runtime/sharedRuntime.hpp"
 #include "runtime/stubRoutines.hpp"
 #include "runtime/thread.inline.hpp"
@@ -94,18 +94,7 @@
 #endif // AMD64
 
 address os::current_stack_pointer() {
-#ifdef SPARC_WORKS
-  void *esp;
-  __asm__("mov %%" SPELL_REG_SP ", %0":"=r"(esp));
-  return (address) ((char*)esp + sizeof(long)*2);
-#elif defined(__clang__)
-  void* esp;
-  __asm__ __volatile__ ("mov %%" SPELL_REG_SP ", %0":"=r"(esp):);
-  return (address) esp;
-#else
-  register void *esp __asm__ (SPELL_REG_SP);
-  return (address) esp;
-#endif
+  return (address)__builtin_frame_address(0);
 }
 
 char* os::non_memory_address_word() {
@@ -132,35 +121,18 @@ intptr_t* os::Linux::ucontext_get_fp(const ucontext_t * uc) {
   return (intptr_t*)uc->uc_mcontext.gregs[REG_FP];
 }
 
-// For Forte Analyzer AsyncGetCallTrace profiling support - thread
-// is currently interrupted by SIGPROF.
-// os::Solaris::fetch_frame_from_ucontext() tries to skip nested signal
-// frames. Currently we don't do that on Linux, so it's the same as
-// os::fetch_frame_from_context().
-// This method is also used for stack overflow signal handling.
-ExtendedPC os::Linux::fetch_frame_from_ucontext(Thread* thread,
-  const ucontext_t* uc, intptr_t** ret_sp, intptr_t** ret_fp) {
-
-  assert(thread != NULL, "just checking");
-  assert(ret_sp != NULL, "just checking");
-  assert(ret_fp != NULL, "just checking");
-
-  return os::fetch_frame_from_context(uc, ret_sp, ret_fp);
-}
-
-ExtendedPC os::fetch_frame_from_context(const void* ucVoid,
+address os::fetch_frame_from_context(const void* ucVoid,
                     intptr_t** ret_sp, intptr_t** ret_fp) {
 
-  ExtendedPC  epc;
+  address epc;
   const ucontext_t* uc = (const ucontext_t*)ucVoid;
 
   if (uc != NULL) {
-    epc = ExtendedPC(os::Linux::ucontext_get_pc(uc));
+    epc = os::Linux::ucontext_get_pc(uc);
     if (ret_sp) *ret_sp = os::Linux::ucontext_get_sp(uc);
     if (ret_fp) *ret_fp = os::Linux::ucontext_get_fp(uc);
   } else {
-    // construct empty ExtendedPC for return value checking
-    epc = ExtendedPC(NULL);
+    epc = NULL;
     if (ret_sp) *ret_sp = (intptr_t *)NULL;
     if (ret_fp) *ret_fp = (intptr_t *)NULL;
   }
@@ -171,15 +143,8 @@ ExtendedPC os::fetch_frame_from_context(const void* ucVoid,
 frame os::fetch_frame_from_context(const void* ucVoid) {
   intptr_t* sp;
   intptr_t* fp;
-  ExtendedPC epc = fetch_frame_from_context(ucVoid, &sp, &fp);
-  return frame(sp, fp, epc.pc());
-}
-
-frame os::fetch_frame_from_ucontext(Thread* thread, void* ucVoid) {
-  intptr_t* sp;
-  intptr_t* fp;
-  ExtendedPC epc = os::Linux::fetch_frame_from_ucontext(thread, (ucontext_t*)ucVoid, &sp, &fp);
-  return frame(sp, fp, epc.pc());
+  address epc = fetch_frame_from_context(ucVoid, &sp, &fp);
+  return frame(sp, fp, epc);
 }
 
 bool os::Linux::get_frame_at_stack_banging_point(JavaThread* thread, ucontext_t* uc, frame* fr) {
@@ -189,7 +154,7 @@ bool os::Linux::get_frame_at_stack_banging_point(JavaThread* thread, ucontext_t*
     // been generated while the compilers perform it before. To maintain
     // semantic consistency between interpreted and compiled frames, the
     // method returns the Java sender of the current frame.
-    *fr = os::fetch_frame_from_ucontext(thread, uc);
+    *fr = os::fetch_frame_from_context(uc);
     if (!fr->is_first_java_frame()) {
       // get_frame_at_stack_banging_point() is only called when we
       // have well defined stacks so java_sender() calls do not need
@@ -228,10 +193,7 @@ frame os::get_sender_for_C_frame(frame* fr) {
 }
 
 intptr_t* _get_previous_fp() {
-#ifdef SPARC_WORKS
-  intptr_t **ebp;
-  __asm__("mov %%" SPELL_REG_FP ", %0":"=r"(ebp));
-#elif defined(__clang__)
+#if defined(__clang__)
   intptr_t **ebp;
   __asm__ __volatile__ ("mov %%" SPELL_REG_FP ", %0":"=r"(ebp):);
 #else
@@ -428,7 +390,7 @@ JVM_handle_linux_signal(int sig,
       // Java thread running in Java code => find exception handler if any
       // a fault inside compiled code, the interpreter, or a stub
 
-      if (sig == SIGSEGV && os::is_poll_address((address)info->si_addr)) {
+      if (sig == SIGSEGV && SafepointMechanism::is_poll_address((address)info->si_addr)) {
         stub = SharedRuntime::get_poll_stub(pc);
       } else if (sig == SIGBUS /* && info->si_code == BUS_OBJERR */) {
         // BugId 4454115: A read from a MappedByteBuffer can fault

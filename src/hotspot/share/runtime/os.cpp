@@ -959,7 +959,7 @@ void os::print_environment_variables(outputStream* st, const char** env_list) {
 void os::print_cpu_info(outputStream* st, char* buf, size_t buflen) {
   // cpu
   st->print("CPU:");
-  st->print("total %d", os::processor_count());
+  st->print(" total %d", os::processor_count());
   // It's not safe to query number of active processors after crash
   // st->print("(active %d)", os::active_processor_count()); but we can
   // print the initial number of active processors.
@@ -1157,6 +1157,9 @@ void os::print_location(outputStream* st, intptr_t x, bool verbose) {
 
   if (accessible) {
     st->print(INTPTR_FORMAT " points into unknown readable memory:", p2i(addr));
+    if (is_aligned(addr, sizeof(intptr_t))) {
+      st->print(" " PTR_FORMAT " |", *(intptr_t*)addr);
+    }
     for (address p = addr; p < align_up(addr + 1, sizeof(intptr_t)); ++p) {
       st->print(" %02x", *(u1*)p);
     }
@@ -1697,11 +1700,6 @@ char* os::attempt_reserve_memory_at(size_t bytes, char* addr, int file_desc) {
   return result;
 }
 
-void os::split_reserved_memory(char *base, size_t size,
-                                 size_t split, bool realloc) {
-  pd_split_reserved_memory(base, size, split, realloc);
-}
-
 bool os::commit_memory(char* addr, size_t bytes, bool executable) {
   bool res = pd_commit_memory(addr, bytes, executable);
   if (res) {
@@ -1748,6 +1746,7 @@ bool os::uncommit_memory(char* addr, size_t bytes) {
 bool os::release_memory(char* addr, size_t bytes) {
   bool res;
   if (MemTracker::tracking_level() > NMT_minimal) {
+    // Note: Tracker contains a ThreadCritical.
     Tracker tkr(Tracker::release);
     res = pd_release_memory(addr, bytes);
     if (res) {
@@ -1767,10 +1766,10 @@ void os::pretouch_memory(void* start, void* end, size_t page_size) {
 
 char* os::map_memory(int fd, const char* file_name, size_t file_offset,
                            char *addr, size_t bytes, bool read_only,
-                           bool allow_exec) {
+                           bool allow_exec, MEMFLAGS flags) {
   char* result = pd_map_memory(fd, file_name, file_offset, addr, bytes, read_only, allow_exec);
   if (result != NULL) {
-    MemTracker::record_virtual_memory_reserve_and_commit((address)result, bytes, CALLER_PC);
+    MemTracker::record_virtual_memory_reserve_and_commit((address)result, bytes, CALLER_PC, flags);
   }
   return result;
 }
@@ -1802,6 +1801,35 @@ void os::free_memory(char *addr, size_t bytes, size_t alignment_hint) {
 
 void os::realign_memory(char *addr, size_t bytes, size_t alignment_hint) {
   pd_realign_memory(addr, bytes, alignment_hint);
+}
+
+char* os::reserve_memory_special(size_t size, size_t alignment,
+                                 char* addr, bool executable) {
+
+  assert(is_aligned(addr, alignment), "Unaligned request address");
+
+  char* result = pd_reserve_memory_special(size, alignment, addr, executable);
+  if (result != NULL) {
+    // The memory is committed
+    MemTracker::record_virtual_memory_reserve_and_commit((address)result, size, CALLER_PC);
+  }
+
+  return result;
+}
+
+bool os::release_memory_special(char* addr, size_t bytes) {
+  bool res;
+  if (MemTracker::tracking_level() > NMT_minimal) {
+    // Note: Tracker contains a ThreadCritical.
+    Tracker tkr(Tracker::release);
+    res = pd_release_memory_special(addr, bytes);
+    if (res) {
+      tkr.record((address)addr, bytes);
+    }
+  } else {
+    res = pd_release_memory_special(addr, bytes);
+  }
+  return res;
 }
 
 #ifndef _WINDOWS

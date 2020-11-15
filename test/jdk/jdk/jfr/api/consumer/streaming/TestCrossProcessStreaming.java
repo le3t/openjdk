@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2019, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -27,19 +27,17 @@ package jdk.jfr.api.consumer.streaming;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
-import com.sun.tools.attach.VirtualMachine;
 import jdk.jfr.Event;
 import jdk.jfr.Name;
-import jdk.jfr.Recording;
 import jdk.jfr.consumer.EventStream;
 import jdk.test.lib.Asserts;
+import jdk.test.lib.jfr.StreamingUtils;
 import jdk.test.lib.process.ProcessTools;
 
 /**
@@ -83,7 +81,7 @@ public class TestCrossProcessStreaming {
 
     public static void main(String... args) throws Exception {
         Process process = EventProducer.start();
-        Path repo = getJfrRepository(process);
+        Path repo = StreamingUtils.getJfrRepository(process);
 
         // Consume 1000 events in a first batch
         CountDownLatch consumed = new CountDownLatch(1000);
@@ -99,7 +97,7 @@ public class TestCrossProcessStreaming {
         // Consume events until 'exit' signal.
         AtomicInteger total = new AtomicInteger();
         AtomicInteger produced = new AtomicInteger(-1);
-        AtomicReference<Exception> exception = new AtomicReference();
+        AtomicReference<Exception> exception = new AtomicReference<>();
         try (EventStream es = EventStream.openRepository(repo)) {
             es.onEvent("Batch2", e -> {
                     try {
@@ -127,13 +125,18 @@ public class TestCrossProcessStreaming {
     }
 
     static class EventProducer {
+        private static final String MAIN_STARTED = "MAIN_STARTED";
+
         static Process start() throws Exception {
             String[] args = {"-XX:StartFlightRecording", EventProducer.class.getName()};
-            ProcessBuilder pb = ProcessTools.createJavaProcessBuilder(false, args);
-            return ProcessTools.startProcess("Event-Producer", pb);
+            ProcessBuilder pb = ProcessTools.createJavaProcessBuilder(args);
+            return ProcessTools.startProcess("Event-Producer", pb,
+                                             line -> line.contains(MAIN_STARTED),
+                                             0, TimeUnit.SECONDS);
         }
 
         public static void main(String... args) throws Exception {
+            System.out.println(MAIN_STARTED);
             ResultEvent rs = new ResultEvent();
             rs.batch1Count = emit(TestEvent1.class, "second-batch");
             rs.batch2Count = emit(TestEvent2.class, "exit");
@@ -163,17 +166,5 @@ public class TestCrossProcessStreaming {
 
     static boolean signalCheck(String name) throws Exception {
         return Files.exists(Paths.get(".", name));
-    }
-
-    static Path getJfrRepository(Process p) throws Exception {
-        VirtualMachine vm = VirtualMachine.attach(String.valueOf(p.pid()));
-        while (true) {
-            String repo = vm.getSystemProperties().getProperty("jdk.jfr.repository");
-            if (repo != null) {
-                vm.detach();
-                System.out.println("JFR repository: " + repo);
-                return Paths.get(repo);
-            }
-        }
     }
 }

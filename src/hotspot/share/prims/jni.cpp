@@ -32,6 +32,7 @@
 #include "classfile/classLoader.hpp"
 #include "classfile/javaClasses.hpp"
 #include "classfile/javaClasses.inline.hpp"
+#include "classfile/moduleEntry.hpp"
 #include "classfile/modules.hpp"
 #include "classfile/symbolTable.hpp"
 #include "classfile/systemDictionary.hpp"
@@ -48,7 +49,7 @@
 #include "memory/universe.hpp"
 #include "oops/access.inline.hpp"
 #include "oops/arrayOop.inline.hpp"
-#include "oops/instanceKlass.hpp"
+#include "oops/instanceKlass.inline.hpp"
 #include "oops/instanceOop.hpp"
 #include "oops/markWord.hpp"
 #include "oops/method.hpp"
@@ -315,23 +316,11 @@ JNI_ENTRY(jclass, jni_DefineClass(JNIEnv *env, const char *name, jobject loaderR
   jclass cls = NULL;
   DT_RETURN_MARK(DefineClass, jclass, (const jclass&)cls);
 
-  TempNewSymbol class_name = NULL;
-  // Since exceptions can be thrown, class initialization can take place
-  // if name is NULL no check for class name in .class stream has to be made.
-  if (name != NULL) {
-    const int str_len = (int)strlen(name);
-    if (str_len > Symbol::max_length()) {
-      // It's impossible to create this class;  the name cannot fit
-      // into the constant pool.
-      Exceptions::fthrow(THREAD_AND_LOCATION,
-                         vmSymbols::java_lang_NoClassDefFoundError(),
-                         "Class name exceeds maximum length of %d: %s",
-                         Symbol::max_length(),
-                         name);
-      return 0;
-    }
-    class_name = SymbolTable::new_symbol(name);
-  }
+  // Class resolution will get the class name from the .class stream if the name is null.
+  TempNewSymbol class_name = name == NULL ? NULL :
+    SystemDictionary::class_name_symbol(name, vmSymbols::java_lang_NoClassDefFoundError(),
+                                        CHECK_NULL);
+
   ResourceMark rm(THREAD);
   ClassFileStream st((u1*)buf, bufLen, NULL, ClassFileStream::verify);
   Handle class_loader (THREAD, JNIHandles::resolve(loaderRef));
@@ -373,19 +362,10 @@ JNI_ENTRY(jclass, jni_FindClass(JNIEnv *env, const char *name))
   jclass result = NULL;
   DT_RETURN_MARK(FindClass, jclass, (const jclass&)result);
 
-  // Sanity check the name:  it cannot be null or larger than the maximum size
-  // name we can fit in the constant pool.
-  if (name == NULL) {
-    THROW_MSG_0(vmSymbols::java_lang_NoClassDefFoundError(), "No class name given");
-  }
-  if ((int)strlen(name) > Symbol::max_length()) {
-    Exceptions::fthrow(THREAD_AND_LOCATION,
-                       vmSymbols::java_lang_NoClassDefFoundError(),
-                       "Class name exceeds maximum length of %d: %s",
-                       Symbol::max_length(),
-                       name);
-    return 0;
-  }
+  // This should be ClassNotFoundException imo.
+  TempNewSymbol class_name =
+    SystemDictionary::class_name_symbol(name, vmSymbols::java_lang_NoClassDefFoundError(),
+                                        CHECK_NULL);
 
   //%note jni_3
   Handle protection_domain;
@@ -417,8 +397,7 @@ JNI_ENTRY(jclass, jni_FindClass(JNIEnv *env, const char *name))
     }
   }
 
-  TempNewSymbol sym = SymbolTable::new_symbol(name);
-  result = find_class_from_class_loader(env, sym, true, loader,
+  result = find_class_from_class_loader(env, class_name, true, loader,
                                         protection_domain, true, thread);
 
   if (log_is_enabled(Debug, class, resolve) && result != NULL) {
@@ -1063,19 +1042,6 @@ static void jni_invoke_nonstatic(JNIEnv *env, JavaValue* result, jobject receive
   }
 }
 
-
-static instanceOop alloc_object(jclass clazz, TRAPS) {
-  Klass* k = java_lang_Class::as_Klass(JNIHandles::resolve_non_null(clazz));
-  if (k == NULL) {
-    ResourceMark rm(THREAD);
-    THROW_(vmSymbols::java_lang_InstantiationException(), NULL);
-  }
-  k->check_valid_for_instantiation(false, CHECK_NULL);
-  k->initialize(CHECK_NULL);
-  instanceOop ih = InstanceKlass::cast(k)->allocate_instance(THREAD);
-  return ih;
-}
-
 DT_RETURN_MARK_DECL(AllocObject, jobject
                     , HOTSPOT_JNI_ALLOCOBJECT_RETURN(_ret_ref));
 
@@ -1087,7 +1053,7 @@ JNI_ENTRY(jobject, jni_AllocObject(JNIEnv *env, jclass clazz))
   jobject ret = NULL;
   DT_RETURN_MARK(AllocObject, jobject, (const jobject&)ret);
 
-  instanceOop i = alloc_object(clazz, CHECK_NULL);
+  instanceOop i = InstanceKlass::allocate_instance(JNIHandles::resolve_non_null(clazz), CHECK_NULL);
   ret = JNIHandles::make_local(env, i);
   return ret;
 JNI_END
@@ -1103,7 +1069,7 @@ JNI_ENTRY(jobject, jni_NewObjectA(JNIEnv *env, jclass clazz, jmethodID methodID,
   jobject obj = NULL;
   DT_RETURN_MARK(NewObjectA, jobject, (const jobject)obj);
 
-  instanceOop i = alloc_object(clazz, CHECK_NULL);
+  instanceOop i = InstanceKlass::allocate_instance(JNIHandles::resolve_non_null(clazz), CHECK_NULL);
   obj = JNIHandles::make_local(env, i);
   JavaValue jvalue(T_VOID);
   JNI_ArgumentPusherArray ap(methodID, args);
@@ -1123,7 +1089,7 @@ JNI_ENTRY(jobject, jni_NewObjectV(JNIEnv *env, jclass clazz, jmethodID methodID,
   jobject obj = NULL;
   DT_RETURN_MARK(NewObjectV, jobject, (const jobject&)obj);
 
-  instanceOop i = alloc_object(clazz, CHECK_NULL);
+  instanceOop i = InstanceKlass::allocate_instance(JNIHandles::resolve_non_null(clazz), CHECK_NULL);
   obj = JNIHandles::make_local(env, i);
   JavaValue jvalue(T_VOID);
   JNI_ArgumentPusherVaArg ap(methodID, args);
@@ -1143,7 +1109,7 @@ JNI_ENTRY(jobject, jni_NewObject(JNIEnv *env, jclass clazz, jmethodID methodID, 
   jobject obj = NULL;
   DT_RETURN_MARK(NewObject, jobject, (const jobject&)obj);
 
-  instanceOop i = alloc_object(clazz, CHECK_NULL);
+  instanceOop i = InstanceKlass::allocate_instance(JNIHandles::resolve_non_null(clazz), CHECK_NULL);
   obj = JNIHandles::make_local(env, i);
   va_list args;
   va_start(args, methodID);
@@ -2811,17 +2777,26 @@ JNI_ENTRY(jint, jni_RegisterNatives(JNIEnv *env, jclass clazz,
 
   Klass* k = java_lang_Class::as_Klass(JNIHandles::resolve_non_null(clazz));
 
-  // There are no restrictions on native code registering native methods, which
-  // allows agents to redefine the bindings to native methods. But we issue a
-  // warning if any code running outside of the boot/platform loader is rebinding
-  // any native methods in classes loaded by the boot/platform loader.
-  Klass* caller = thread->security_get_caller_class(1);
+  // There are no restrictions on native code registering native methods,
+  // which allows agents to redefine the bindings to native methods, however
+  // we issue a warning if any code running outside of the boot/platform
+  // loader is rebinding any native methods in classes loaded by the
+  // boot/platform loader that are in named modules. That will catch changes
+  // to platform classes while excluding classes added to the bootclasspath.
   bool do_warning = false;
-  oop cl = k->class_loader();
-  if (cl ==  NULL || SystemDictionary::is_platform_class_loader(cl)) {
-    // If no caller class, or caller class has a different loader, then
-    // issue a warning below.
-    do_warning = (caller == NULL) || caller->class_loader() != cl;
+
+  // Only instanceKlasses can have native methods
+  if (k->is_instance_klass()) {
+    oop cl = k->class_loader();
+    InstanceKlass* ik = InstanceKlass::cast(k);
+    // Check for a platform class
+    if ((cl ==  NULL || SystemDictionary::is_platform_class_loader(cl)) &&
+        ik->module()->is_named()) {
+      Klass* caller = thread->security_get_caller_class(1);
+      // If no caller class, or caller class has a different loader, then
+      // issue a warning below.
+      do_warning = (caller == NULL) || caller->class_loader() != cl;
+    }
   }
 
 

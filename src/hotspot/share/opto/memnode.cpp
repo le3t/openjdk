@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2019, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -455,9 +455,8 @@ bool MemNode::all_controls_dominate(Node* dom, Node* sub) {
     // Check all control edges of 'dom'.
 
     ResourceMark rm;
-    Arena* arena = Thread::current()->resource_area();
-    Node_List nlist(arena);
-    Unique_Node_List dom_list(arena);
+    Node_List nlist;
+    Unique_Node_List dom_list;
 
     dom_list.push(dom);
     bool only_dominating_controls = false;
@@ -538,8 +537,7 @@ Node* LoadNode::find_previous_arraycopy(PhaseTransform* phase, Node* ld_alloc, N
         mb->in(0)->in(0) != NULL && mb->in(0)->in(0)->is_ArrayCopy()) {
       ArrayCopyNode* ac = mb->in(0)->in(0)->as_ArrayCopy();
       if (ac->is_clonebasic()) {
-        intptr_t offset;
-        AllocateNode* alloc = AllocateNode::Ideal_allocation(ac->in(ArrayCopyNode::Dest), phase, offset);
+        AllocateNode* alloc = AllocateNode::Ideal_allocation(ac->in(ArrayCopyNode::Dest), phase);
         if (alloc != NULL && alloc == ld_alloc) {
           return ac;
         }
@@ -946,12 +944,11 @@ Node* LoadNode::can_see_arraycopy_value(Node* st, PhaseGVN* phase) const {
     if (ac->as_ArrayCopy()->is_clonebasic()) {
       assert(ld_alloc != NULL, "need an alloc");
       assert(addp->is_AddP(), "address must be addp");
-      assert(ac->in(ArrayCopyNode::Dest)->is_AddP(), "dest must be an address");
       BarrierSetC2* bs = BarrierSet::barrier_set()->barrier_set_c2();
-      assert(bs->step_over_gc_barrier(addp->in(AddPNode::Base)) == bs->step_over_gc_barrier(ac->in(ArrayCopyNode::Dest)->in(AddPNode::Base)), "strange pattern");
-      assert(bs->step_over_gc_barrier(addp->in(AddPNode::Address)) == bs->step_over_gc_barrier(ac->in(ArrayCopyNode::Dest)->in(AddPNode::Address)), "strange pattern");
-      addp->set_req(AddPNode::Base, src->in(AddPNode::Base));
-      addp->set_req(AddPNode::Address, src->in(AddPNode::Address));
+      assert(bs->step_over_gc_barrier(addp->in(AddPNode::Base)) == bs->step_over_gc_barrier(ac->in(ArrayCopyNode::Dest)), "strange pattern");
+      assert(bs->step_over_gc_barrier(addp->in(AddPNode::Address)) == bs->step_over_gc_barrier(ac->in(ArrayCopyNode::Dest)), "strange pattern");
+      addp->set_req(AddPNode::Base, src);
+      addp->set_req(AddPNode::Address, src);
     } else {
       assert(ac->as_ArrayCopy()->is_arraycopy_validated() ||
              ac->as_ArrayCopy()->is_copyof_validated() ||
@@ -2155,15 +2152,15 @@ const Type* LoadNode::klass_value_common(PhaseGVN* phase) const {
     ciInstanceKlass* ik = tinst->klass()->as_instance_klass();
     int offset = tinst->offset();
     if (ik == phase->C->env()->Class_klass()
-        && (offset == java_lang_Class::klass_offset_in_bytes() ||
-            offset == java_lang_Class::array_klass_offset_in_bytes())) {
+        && (offset == java_lang_Class::klass_offset() ||
+            offset == java_lang_Class::array_klass_offset())) {
       // We are loading a special hidden field from a Class mirror object,
       // the field which points to the VM's Klass metaobject.
       ciType* t = tinst->java_mirror_type();
       // java_mirror_type returns non-null for compile-time Class constants.
       if (t != NULL) {
         // constant oop => constant klass
-        if (offset == java_lang_Class::array_klass_offset_in_bytes()) {
+        if (offset == java_lang_Class::array_klass_offset()) {
           if (t->is_void()) {
             // We cannot create a void array.  Since void is a primitive type return null
             // klass.  Users of this result need to do a null check on the returned klass.
@@ -2189,7 +2186,6 @@ const Type* LoadNode::klass_value_common(PhaseGVN* phase) const {
       // See if we can become precise: no subklasses and no interface
       // (Note:  We need to support verified interfaces.)
       if (!ik->is_interface() && !ik->has_subklass()) {
-        //assert(!UseExactTypes, "this code should be useless with exact types");
         // Add a dependence; if any subclass added we need to recompile
         if (!ik->is_final()) {
           // %%% should use stronger assert_unique_concrete_subtype instead
@@ -2223,7 +2219,6 @@ const Type* LoadNode::klass_value_common(PhaseGVN* phase) const {
           ciInstanceKlass* ik = base_k->as_instance_klass();
           // See if we can become precise: no subklasses and no interface
           if (!ik->is_interface() && !ik->has_subklass()) {
-            //assert(!UseExactTypes, "this code should be useless with exact types");
             // Add a dependence; if any subclass added we need to recompile
             if (!ik->is_final()) {
               phase->C->dependencies()->assert_leaf_type(ik);
@@ -2234,7 +2229,6 @@ const Type* LoadNode::klass_value_common(PhaseGVN* phase) const {
         }
         return TypeKlassPtr::make(TypePtr::NotNull, ak, 0/*offset*/);
       } else {                  // Found a type-array?
-        //assert(!UseExactTypes, "this code should be useless with exact types");
         assert( ak->is_type_array_klass(), "" );
         return TypeKlassPtr::make(ak); // These are always precise
       }
@@ -2316,7 +2310,7 @@ Node* LoadNode::klass_identity_common(PhaseGVN* phase) {
   // introducing a new debug info operator for Klass.java_mirror).
 
   if (toop->isa_instptr() && toop->klass() == phase->C->env()->Class_klass()
-      && offset == java_lang_Class::klass_offset_in_bytes()) {
+      && offset == java_lang_Class::klass_offset()) {
     if (base->is_Load()) {
       Node* base2 = base->in(MemNode::Address);
       if (base2->is_Load()) { /* direct load of a load which is the OopHandle */
@@ -3247,7 +3241,7 @@ void MemBarNode::set_load_store_pair(MemBarNode* leading, MemBarNode* trailing) 
 MemBarNode* MemBarNode::trailing_membar() const {
   ResourceMark rm;
   Node* trailing = (Node*)this;
-  VectorSet seen(Thread::current()->resource_area());
+  VectorSet seen;
   Node_Stack multis(0);
   do {
     Node* c = trailing;
@@ -3291,7 +3285,7 @@ MemBarNode* MemBarNode::trailing_membar() const {
 
 MemBarNode* MemBarNode::leading_membar() const {
   ResourceMark rm;
-  VectorSet seen(Thread::current()->resource_area());
+  VectorSet seen;
   Node_Stack regions(0);
   Node* leading = in(0);
   while (leading != NULL && (!leading->is_MemBar() || !leading->as_MemBar()->leading())) {

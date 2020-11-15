@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2014, 2018, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2013, 2017 SAP SE. All rights reserved.
+ * Copyright (c) 2014, 2020, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2013, 2020 SAP SE. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -33,6 +33,7 @@
 #include "interpreter/templateTable.hpp"
 #include "memory/universe.hpp"
 #include "oops/klass.inline.hpp"
+#include "oops/methodData.hpp"
 #include "oops/objArrayKlass.hpp"
 #include "oops/oop.inline.hpp"
 #include "prims/methodHandles.hpp"
@@ -2176,7 +2177,7 @@ void TemplateTable::_return(TosState state) {
     __ bind(Lskip_register_finalizer);
   }
 
-  if (SafepointMechanism::uses_thread_local_poll() && _desc->bytecode() != Bytecodes::_return_register_finalizer) {
+  if (_desc->bytecode() != Bytecodes::_return_register_finalizer) {
     Label no_safepoint;
     __ ld(R11_scratch1, in_bytes(Thread::polling_page_offset()), R16_thread);
     __ andi_(R11_scratch1, R11_scratch1, SafepointMechanism::poll_bit());
@@ -2518,7 +2519,7 @@ void TemplateTable::getfield_or_static(int byte_no, bool is_static, RewriteContr
 
 #ifdef ASSERT
   __ bind(LFlagInvalid);
-  __ stop("got invalid flag", 0x654);
+  __ stop("got invalid flag");
 #endif
 
   if (!is_static && rc == may_not_rewrite) {
@@ -2533,7 +2534,7 @@ void TemplateTable::getfield_or_static(int byte_no, bool is_static, RewriteContr
   assert(__ pc() - pc_before_fence == (ptrdiff_t)BytesPerInstWord, "must be single instruction");
   assert(branch_table[vtos] == 0, "can't compute twice");
   branch_table[vtos] = __ pc(); // non-volatile_entry point
-  __ stop("vtos unexpected", 0x655);
+  __ stop("vtos unexpected");
 #endif
 
   __ align(32, 28, 28); // Align load.
@@ -2847,7 +2848,7 @@ void TemplateTable::putfield_or_static(int byte_no, bool is_static, RewriteContr
 
 #ifdef ASSERT
   __ bind(LFlagInvalid);
-  __ stop("got invalid flag", 0x656);
+  __ stop("got invalid flag");
 
   // __ bind(Lvtos);
   address pc_before_release = __ pc();
@@ -2855,7 +2856,7 @@ void TemplateTable::putfield_or_static(int byte_no, bool is_static, RewriteContr
   assert(__ pc() - pc_before_release == (ptrdiff_t)BytesPerInstWord, "must be single instruction");
   assert(branch_table[vtos] == 0, "can't compute twice");
   branch_table[vtos] = __ pc(); // non-volatile_entry point
-  __ stop("vtos unexpected", 0x657);
+  __ stop("vtos unexpected");
 #endif
 
   __ align(32, 28, 28); // Align pop.
@@ -3664,7 +3665,6 @@ void TemplateTable::invokeinterface(int byte_no) {
   // Found entry. Jump off!
   // Argument and return type profiling.
   __ profile_arguments_type(Rmethod2, Rscratch1, Rscratch2, true);
-  //__ profile_called_method(Rindex, Rscratch1);
   __ call_from_interpreter(Rmethod2, Rret_addr, Rscratch1, Rscratch2);
 
   // Vtable entry was NULL => Throw abstract method error.
