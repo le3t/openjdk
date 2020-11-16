@@ -128,6 +128,7 @@ public class HashMap<K,V>
 
     /**
      * The default initial capacity - MUST be a power of two.
+     * 初始容量 = hash表初始化时候创建的容量
      */
     static final int DEFAULT_INITIAL_CAPACITY = 1 << 4; // aka 16
 
@@ -135,6 +136,7 @@ public class HashMap<K,V>
      * The maximum capacity, used if a higher value is implicitly specified
      * by either of the constructors with arguments.
      * MUST be a power of two <= 1<<30.
+     * 最大值
      */
     static final int MAXIMUM_CAPACITY = 1 << 30;
 
@@ -578,7 +580,10 @@ public class HashMap<K,V>
         }
 
         Entry[] newTable = new Entry[newCapacity];
+
+        //重点关注的点，1.7中jdk采用头插的方式会出现循环列表，造成死循环。
         transfer(newTable, initHashSeedAsNeeded(newCapacity));
+
         table = newTable;
         threshold = (int)Math.min(newCapacity * loadFactor, MAXIMUM_CAPACITY + 1);
     }
@@ -590,11 +595,21 @@ public class HashMap<K,V>
         int newCapacity = newTable.length;
         for (Entry<K,V> e : table) {
             while(null != e) {
+
+                /*
+                 * 1. 线程不安全，执行多次会出现循环列表
+                 * 2. 当2个线程同步触发扩容，第一个写入从头到尾，第二个会从尾到头，这样就会形成循环列表
+                 * 3. 在读取就会出现死循环
+                 * 4. 1.8中jdk采用尾插的方式，不会出现死循环了
+                 */
+
                 Entry<K,V> next = e.next;
                 if (rehash) {
                     e.hash = null == e.key ? 0 : hash(e.key);
                 }
                 int i = indexFor(e.hash, newCapacity);
+
+                //重排序
                 e.next = newTable[i];
                 newTable[i] = e;
                 e = next;
